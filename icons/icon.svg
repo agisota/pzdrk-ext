@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="face1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD93D"/>
+      <stop offset="100%" style="stop-color:#F9A825"/>
+    </linearGradient>
+    <linearGradient id="face2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFCA28"/>
+      <stop offset="100%" style="stop-color:#FF8F00"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="#1a1a2e"/>
+  
+  <!-- Back face (smaller, top-left) -->
+  <g filter="url(#shadow)" transform="translate(-8, -8)">
+    <circle cx="52" cy="52" r="32" fill="url(#face1)"/>
+    <!-- Eyebrows -->
+    <path d="M38 42 Q42 38 48 40" stroke="#8B4513" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M56 40 Q62 38 66 42" stroke="#8B4513" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <!-- Eyes -->
+    <ellipse cx="44" cy="50" rx="6" ry="8" fill="white"/>
+    <ellipse cx="60" cy="50" rx="6" ry="8" fill="white"/>
+    <circle cx="44" cy="52" r="4" fill="#1a1a2e"/>
+    <circle cx="60" cy="52" r="4" fill="#1a1a2e"/>
+    <circle cx="45" cy="50" r="1.5" fill="white"/>
+    <circle cx="61" cy="50" r="1.5" fill="white"/>
+    <!-- Mouth (open, surprised) -->
+    <ellipse cx="52" cy="68" rx="8" ry="10" fill="#1a1a2e"/>
+  </g>
+  
+  <!-- Front face (larger, bottom-right) -->
+  <g filter="url(#shadow)" transform="translate(8, 8)">
+    <circle cx="76" cy="76" r="38" fill="url(#face2)"/>
+    <!-- Eyebrows -->
+    <path d="M58 64 Q64 58 72 62" stroke="#8B4513" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M80 62 Q88 58 94 64" stroke="#8B4513" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <!-- Eyes -->
+    <ellipse cx="66" cy="74" rx="8" ry="10" fill="white"/>
+    <ellipse cx="86" cy="74" rx="8" ry="10" fill="white"/>
+    <circle cx="66" cy="76" r="5" fill="#1a1a2e"/>
+    <circle cx="86" cy="76" r="5" fill="#1a1a2e"/>
+    <circle cx="68" cy="74" r="2" fill="white"/>
+    <circle cx="88" cy="74" r="2" fill="white"/>
+    <!-- Mouth (open, surprised) -->
+    <ellipse cx="76" cy="96" rx="10" ry="12" fill="#1a1a2e"/>
+  </g>
+  
+  <!-- Cyan accent glow -->
+  <circle cx="100" cy="28" r="8" fill="#00d9ff" opacity="0.6" filter="url(#glow)"/>
+</svg>

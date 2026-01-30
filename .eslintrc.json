@@ -1,0 +1,100 @@
+{
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "webextensions": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script"
+  },
+  "globals": {
+    "chrome": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "no-console": "off",
+    "prefer-const": "warn",
+    "no-var": "error",
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "curly": [
+      "warn",
+      "multi-line"
+    ],
+    "no-throw-literal": "error",
+    "no-return-await": "warn",
+    "require-await": "warn",
+    "no-async-promise-executor": "error",
+    "no-promise-executor-return": "warn",
+    "prefer-arrow-callback": "warn",
+    "arrow-body-style": [
+      "warn",
+      "as-needed"
+    ],
+    "no-duplicate-imports": "error",
+    "no-template-curly-in-string": "warn",
+    "no-unreachable-loop": "error",
+    "no-use-before-define": [
+      "error",
+      {
+        "functions": false
+      }
+    ],
+    "no-shadow": "warn",
+    "camelcase": [
+      "warn",
+      {
+        "properties": "never"
+      }
+    ],
+    "semi": [
+      "warn",
+      "always"
+    ],
+    "quotes": [
+      "warn",
+      "single",
+      {
+        "avoidEscape": true
+      }
+    ],
+    "indent": [
+      "warn",
+      2,
+      {
+        "SwitchCase": 1
+      }
+    ],
+    "comma-dangle": [
+      "warn",
+      "never"
+    ],
+    "object-curly-spacing": [
+      "warn",
+      "always"
+    ],
+    "array-bracket-spacing": [
+      "warn",
+      "never"
+    ],
+    "space-before-function-paren": [
+      "warn",
+      {
+        "anonymous": "always",
+        "named": "never",
+        "asyncArrow": "always"
+      }
+    ]
+  }
+}

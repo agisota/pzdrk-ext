@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 280px;
+      padding: 14px;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 11px;
+      background: rgba(13, 13, 18, 0.98);
+      color: #e8e8e8;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .header-icon { font-size: 22px; }
+    .header-text h1 { font-size: 14px; font-weight: 600; color: #fff; }
+    .header-text .version { font-size: 9px; color: #555; }
+    
+    .stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .stat {
+      flex: 1;
+      padding: 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-value { font-size: 18px; font-weight: 700; }
+    .stat-label { font-size: 8px; color: #666; margin-top: 2px; }
+    .stat-ghost .stat-value { color: #9b59b6; }
+    
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .toggle-row:last-of-type { border-bottom: none; }
+    .toggle-row span { font-size: 11px; }
+    .toggle { position: relative; width: 36px; height: 20px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #2d2d3d; border-radius: 20px; transition: 0.2s;
+    }
+    .slider:before {
+      position: absolute; content: "";
+      height: 14px; width: 14px; left: 3px; bottom: 3px;
+      background: #555; border-radius: 50%; transition: 0.2s;
+    }
+    input:checked + .slider { background: rgba(0, 217, 255, 0.3); }
+    input:checked + .slider:before { transform: translateX(16px); background: #00d9ff; }
+    
+    .btn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: #00d9ff;
+      color: #0d0d12;
+    }
+    .btn-primary:hover { background: #00c4e6; }
+    .btn-secondary {
+      background: rgba(255,255,255,0.05);
+      color: #e8e8e8;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.08); }
+    .btn-ghost {
+      background: rgba(155, 89, 182, 0.1);
+      color: #9b59b6;
+      border: 1px solid rgba(155, 89, 182, 0.2);
+    }
+    .btn-ghost:hover { background: rgba(155, 89, 182, 0.2); }
+    
+    .footer {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      text-align: center;
+    }
+    .footer a {
+      color: #555;
+      text-decoration: none;
+      font-size: 9px;
+    }
+    .footer a:hover { color: #00d9ff; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="header-icon">✦</span>
+    <div class="header-text">
+      <h1>pzdrk</h1>
+      <div class="version">v6.4.0</div>
+    </div>
+  </div>
+  
+  <div class="stats">
+    <div class="stat stat-ghost">
+      <div class="stat-value" id="trackersBlocked">0</div>
+      <div class="stat-label">👻 Trackers blocked</div>
+    </div>
+  </div>
+  
+  <div class="toggle-row">
+    <span>🧠 Авто-анализ</span>
+    <label class="toggle"><input type="checkbox" id="autoSummarize" checked><span class="slider"></span></label>
+  </div>
+  
+  <div class="toggle-row">
+    <span>👻 Privacy Protection</span>
+    <label class="toggle"><input type="checkbox" id="privacyEnabled" checked><span class="slider"></span></label>
+  </div>
+  
+  <div style="margin-top: 10px;">
+    <label style="font-size: 11px; color: #999; margin-bottom: 6px; display: block;">🌐 Translate to:</label>
+    <select id="translateLang" style="width: 100%; padding: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #e8e8e8; font-size: 11px; margin-bottom: 8px;">
+      <option value="ru">🇷🇺 Русский</option>
+      <option value="en">🇬🇧 English</option>
+      <option value="de">🇩🇪 Deutsch</option>
+      <option value="fr">🇫🇷 Français</option>
+      <option value="es">🇪🇸 Español</option>
+      <option value="zh">🇨🇳 中文</option>
+      <option value="ja">🇯🇵 日本語</option>
+    </select>
+  </div>
+  <button class="btn btn-primary" id="summarizeBtn">✦ Summarize Now</button>
+  <button class="btn btn-secondary" id="translateBtn">🌐 Translate Page</button>
+  <button class="btn btn-ghost" id="mindmapBtn">🗺️ Generate Mindmap</button>
+  
+  <div class="footer">
+    <a href="#" id="openOptions">⚙️ Настройки</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

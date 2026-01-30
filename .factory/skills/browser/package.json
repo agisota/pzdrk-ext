@@ -1,0 +1,9 @@
+{
+  "name": "factory-browser-skill",
+  "private": true,
+  "type": "commonjs",
+  "description": "Minimal Chrome DevTools Protocol helpers for local Chrome automation",
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

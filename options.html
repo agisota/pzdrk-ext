@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>✦ pzdrk — Настройки</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 12px;
+      background: linear-gradient(135deg, #0a0a10 0%, #0d0d14 50%, #0a0a10 100%);
+      color: #e8e8e8;
+      min-height: 100vh;
+      padding: 30px;
+    }
+    .container { max-width: 600px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    .header-icon { font-size: 36px; }
+    .header-text h1 { font-size: 24px; font-weight: 700; color: #fff; }
+    .header-text .version { font-size: 10px; color: #555; margin-top: 2px; }
+    .header-meta {
+      display: flex; gap: 16px; align-items: center;
+      padding: 12px 0 20px; margin-bottom: 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .meta-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #666; }
+    .meta-item .value { color: #00d9ff; font-weight: 500; }
+    .mode-badge {
+      padding: 4px 10px; border-radius: 4px; font-size: 9px;
+      font-weight: 600; text-transform: uppercase; cursor: pointer; transition: all 0.15s;
+    }
+    .mode-badge.active { background: rgba(0, 217, 255, 0.15); color: #00d9ff; }
+    .mode-badge.available { background: rgba(255,255,255,0.04); color: #555; }
+    .mode-badge.available:hover { background: rgba(255,255,255,0.08); color: #888; }
+    
+    .section {
+      background: rgba(255,255,255,0.02);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 11px; font-weight: 600; color: #00d9ff;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-title .icon { font-size: 14px; }
+    .row { margin-bottom: 14px; }
+    .row-title { font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 3px; }
+    .row-subtitle { font-size: 10px; color: #555; margin-bottom: 6px; line-height: 1.4; }
+    .row-subtitle a { color: #00d9ff; text-decoration: none; }
+    input[type="text"], input[type="password"], select, textarea {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      color: #e8e8e8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #00d9ff; }
+    input::placeholder { color: #444; }
+    textarea { min-height: 100px; resize: vertical; }
+    textarea.secret { -webkit-text-security: disc; }
+    .hint { font-size: 9px; color: #444; margin-top: 3px; }
+    select option { background: #1a1a24; }
+    
+    .toggle-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-row-info span { font-size: 12px; font-weight: 500; color: #fff; }
+    .toggle-row-info p { font-size: 9px; color: #555; margin-top: 2px; }
+    .toggle { position: relative; width: 40px; height: 22px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background: #2d2d3d; border-radius: 22px; transition: 0.2s;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+      background: #555; border-radius: 50%; transition: 0.2s;
+    }
+    input:checked + .slider { background: rgba(0, 217, 255, 0.3); }
+    input:checked + .slider:before { transform: translateX(18px); background: #00d9ff; }
+    .toggle-ghost input:checked + .slider { background: rgba(155, 89, 182, 0.3); }
+    .toggle-ghost input:checked + .slider:before { background: #9b59b6; }
+    
+    .btn {
+      padding: 11px 22px; border: none; border-radius: 8px; cursor: pointer;
+      font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600; transition: all 0.15s;
+    }
+    .btn-primary { background: #00d9ff; color: #0d0d12; }
+    .btn-primary:hover { background: #00c4e6; }
+    .btn-secondary { background: rgba(255,255,255,0.04); color: #e8e8e8; border: 1px solid rgba(255,255,255,0.06); margin-left: 10px; }
+    .btn-mini {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.04);
+      color: #e8e8e8;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-mini:hover { background: rgba(255,255,255,0.08); }
+
+    details.section { padding: 0; }
+    details.section > .section-body { padding: 20px; }
+    details.section > summary.section-title {
+      cursor: pointer;
+      user-select: none;
+      padding: 20px;
+      margin: 0;
+    }
+    details.section > summary.section-title::-webkit-details-marker { display:none; }
+    details.section > summary.section-title::after {
+      content: "▾";
+      margin-left: auto;
+      color: rgba(255,255,255,0.45);
+      font-size: 12px;
+      transform: rotate(0deg);
+      transition: transform 0.15s ease;
+    }
+    details.section:not([open]) > summary.section-title::after { transform: rotate(-90deg); }
+    .actions { display: flex; align-items: center; margin-top: 20px; }
+    .status { margin-left: 16px; padding: 7px 12px; border-radius: 6px; font-size: 11px; display: none; }
+    .status.show { display: inline-block; }
+    .status.success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    
+    .byok-fields { display: none; margin-top: 10px; }
+    .byok-fields.show { display: block; }
+    .field-group { display: flex; gap: 8px; margin-bottom: 8px; }
+    .field-group input { flex: 1; }
+    
+    .stats-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 8px;
+      background: rgba(155, 89, 182, 0.1); border: 1px solid rgba(155, 89, 182, 0.2);
+      font-size: 11px; color: #9b59b6; margin-left: auto;
+    }
+    .stats-badge .count { font-weight: 700; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="header-icon">✦</span>
+      <div class="header-text">
+        <h1>pzdrk Настройки</h1>
+        <div class="version">v6.4.0</div>
+      </div>
+    </div>
+    
+    <div class="header-meta">
+      <div class="meta-item">
+        <span>mode:</span>
+        <span class="mode-badge active" id="unlimitedMode">unlimited</span>
+        <span class="mode-badge available" id="byokMode">BYOK</span>
+      </div>
+      <div class="meta-item"><span>provider:</span><span class="value">pzd.world</span></div>
+      <div class="stats-badge">
+        <span>👻</span><span>Trackers:</span><span class="count" id="trackerCount">0</span>
+      </div>
+    </div>
+
+    <!-- Privacy -->
+    <div class="section">
+      <div class="section-title"><span class="icon">👻</span> Privacy Protection</div>
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Блокировка трекеров</span>
+          <p>Google Analytics, Facebook Pixel, рекламные сети</p>
+        </div>
+        <label class="toggle toggle-ghost"><input type="checkbox" id="privacyEnabled" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Core Agent (LLM) -->
+    <div class="section">
+      <div class="section-title"><span class="icon">🧠</span> Core Agent (LLM)</div>
+      <div class="row">
+        <div class="row-title">Провайдер</div>
+        <div class="row-subtitle">Основной LLM для summary • actions • translate</div>
+        <select id="coreProvider">
+          <option value="groq">Groq</option>
+          <option value="cerebras">Cerebras</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="row-title">Модель</div>
+        <div class="row-subtitle">Модель зависит от выбранного провайдера</div>
+        <select id="model">
+          <option value="moonshotai/kimi-k2-instruct-0905" data-provider="groq">pzdrk-r2-alpha (Kimi K2)</option>
+          <option value="llama-3.3-70b-versatile" data-provider="groq">pzdrk-llama-70b</option>
+          <option value="llama-3.1-8b-instant" data-provider="groq">pzdrk-fast-8b</option>
+          <option value="gpt-oss-120b" data-provider="cerebras">cerebras-gpt-oss-120b</option>
+          <option value="llama-3.3-70b" data-provider="cerebras">cerebras-llama-3.3-70b</option>
+          <option value="llama3.1-8b" data-provider="cerebras">cerebras-llama3.1-8b</option>
+          <option value="qwen-3-32b" data-provider="cerebras">cerebras-qwen-3-32b</option>
+          <option value="qwen-3-235b-a22b-instruct-2507" data-provider="cerebras">cerebras-qwen-3-235b</option>
+          <option value="zai-glm-4.6" data-provider="cerebras">cerebras-glm-4.6</option>
+        </select>
+      </div>
+      <div class="byok-fields" id="coreByok">
+        <div class="row">
+          <div class="row-title">Groq API keys</div>
+          <div class="row-subtitle">Один ключ на строку • round-robin + fallback</div>
+          <textarea id="groqApiKeys" class="secret" placeholder="gsk_...\ngsk_...\n..."></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Cerebras API keys</div>
+          <div class="row-subtitle">Один ключ на строку • OpenAI-compatible endpoint</div>
+          <textarea id="cerebrasApiKeys" class="secret" placeholder="csk-...\ncsk-...\n..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Performance -->
+    <div class="section">
+      <div class="section-title"><span class="icon">⚡</span> Performance</div>
+      <div class="row">
+        <div class="row-title">Max parallel requests</div>
+        <div class="row-subtitle">Сколько LLM запросов одновременно (actions/translate/map-reduce)</div>
+        <input type="text" id="maxParallelRequests" placeholder="12">
+        <p class="hint">Рекомендуем: 6–24. При 429 уменьшайте или добавляйте ключи/провайдер.</p>
+      </div>
+      <div class="row">
+        <div class="row-title">Target max output tokens</div>
+        <div class="row-subtitle">Лимит ответа для быстрых микро‑запросов</div>
+        <input type="text" id="targetMaxOutputTokens" placeholder="500">
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Prefetch on hover</span>
+          <p>На hover по действиям справа: автогенерация (без клика)</p>
+        </div>
+        <label class="toggle"><input type="checkbox" id="prefetchOnHover" checked><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="row-title">Prefetch delay (ms)</div>
+        <div class="row-subtitle">Задержка перед стартом генерации после hover</div>
+        <input type="text" id="prefetchDelayMs" placeholder="320">
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Map‑reduce для длинных страниц</span>
+          <p>Chunking + параллельные микро‑саммари + on-site сборка</p>
+        </div>
+        <label class="toggle"><input type="checkbox" id="mapReduceEnabled" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Real-time Agent (Voice + Transcription) -->
+    <div class="section">
+      <div class="section-title"><span class="icon">🔊</span> Real-time Agent</div>
+      <div class="row">
+        <div class="row-title">Голосовой движок</div>
+        <div class="row-subtitle">Озвучка summary • Monday persona</div>
+        <select id="voiceProvider">
+          <option value="xai">Grok Voice (xAI) — default</option>
+          <option value="elevenlabs">ElevenLabs</option>
+          <option value="browser">Browser TTS (free)</option>
+        </select>
+      </div>
+      <div class="byok-fields" id="voiceByok">
+        <div class="field-group">
+          <input type="password" id="voiceApiKey" placeholder="Voice API key (xAI / ElevenLabs)">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-title">Voice Chat Mode</div>
+        <div class="row-subtitle">Hold <code>\\</code> to talk (xAI Realtime WebSocket)</div>
+        <select id="voiceChatMode">
+          <option value="off">Off (classic record → Whisper → answer)</option>
+          <option value="xai_realtime">xAI Realtime (push‑to‑talk)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <div class="row-title">Voice Personality</div>
+        <div class="row-subtitle">Ara / Rex / Sal / Eve / Leo</div>
+        <select id="voicePersonality">
+          <option value="Ara">Ara</option>
+          <option value="Rex">Rex</option>
+          <option value="Sal">Sal</option>
+          <option value="Eve">Eve</option>
+          <option value="Leo">Leo</option>
+        </select>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Auto‑Speak Summary</span>
+          <p>Автоматически озвучивать summary после генерации</p>
+        </div>
+        <label class="toggle"><input type="checkbox" id="autoSpeakSummary"><span class="slider"></span></label>
+      </div>
+
+      <p class="hint">Транскрипция: Whisper (Groq) — использует Core Agent API key</p>
+    </div>
+
+    <!-- Behavior -->
+    <div class="section">
+      <div class="section-title"><span class="icon">🎚️</span> Поведение</div>
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Авто-анализ</span>
+          <p>Summary при загрузке страницы</p>
+        </div>
+        <label class="toggle"><input type="checkbox" id="autoSummarize" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <span>Классический режим</span>
+          <p>С голубой рамкой вместо glass</p>
+        </div>
+        <label class="toggle"><input type="checkbox" id="classicMode"><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Custom Prompt -->
+    <div class="section">
+      <div class="section-title"><span class="icon">📝</span> Кастомный промпт Summary <button class="btn-mini" id="resetSummaryPromptBtn" type="button">Reset</button></div>
+      <div class="row">
+        <textarea id="summaryPrompt" placeholder="Оставьте пустым для Monday-style промпта..."></textarea>
+        <p class="hint">Переменные: {tags}, {browserContext}</p>
+      </div>
+    </div>
+
+    <!-- Two-column JSON Summary -->
+    <details class="section">
+      <summary class="section-title"><span class="icon">🧱</span> 2‑колоночный JSON Summary</summary>
+      <div class="section-body">
+        <div class="toggle-row">
+          <div class="toggle-row-info">
+            <span>Двухколоночный режим</span>
+            <p>Слева: буллеты • справа: обогащение/термины/ссылки</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="twoColumnSummary" checked><span class="slider"></span></label>
+        </div>
+
+        <div class="row" style="margin-top: 12px;">
+          <div class="row-title">JSON prompt (skeleton) <button class="btn-mini" id="resetSummaryJsonPromptBtn" type="button">Reset</button></div>
+          <div class="row-subtitle">Оставьте пустым, чтобы использовать встроенный schema‑prompt</div>
+          <textarea id="summaryJsonPrompt" placeholder="(optional)"></textarea>
+          <p class="hint">Переменные: {tags}, {browserContext}</p>
+        </div>
+
+        <div class="row">
+          <div class="row-title">Section enrich prompt <button class="btn-mini" id="resetSectionEnrichPromptBtn" type="button">Reset</button></div>
+          <div class="row-subtitle">Оставьте пустым, чтобы использовать встроенный enrich‑prompt</div>
+          <textarea id="sectionEnrichPrompt" placeholder="(optional)"></textarea>
+        </div>
+      </div>
+    </details>
+
+    <!-- Action Prompts -->
+    <details class="section" open>
+      <summary class="section-title"><span class="icon">⚡</span> Prompts для действий (кнопки справа)</summary>
+      <div class="section-body">
+        <div class="row" style="display:flex; justify-content:flex-end; margin-bottom: 10px;">
+          <button class="btn-mini" id="resetAllActionPromptsBtn" type="button">Reset all</button>
+        </div>
+        <div class="row">
+          <div class="row-title">Twitter (1) <button class="btn-mini" data-reset-action="twitter" type="button">Reset</button></div>
+          <textarea id="actionPrompt_twitter"></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Deep Dive (2) <button class="btn-mini" data-reset-action="deepdive" type="button">Reset</button></div>
+          <textarea id="actionPrompt_deepdive"></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Automate (3) <button class="btn-mini" data-reset-action="automation" type="button">Reset</button></div>
+          <textarea id="actionPrompt_automation"></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Learn (4) <button class="btn-mini" data-reset-action="learning" type="button">Reset</button></div>
+          <textarea id="actionPrompt_learning"></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Share (5) <button class="btn-mini" data-reset-action="share" type="button">Reset</button></div>
+          <textarea id="actionPrompt_share"></textarea>
+        </div>
+        <div class="row">
+          <div class="row-title">Challenge (6) <button class="btn-mini" data-reset-action="challenge" type="button">Reset</button></div>
+          <textarea id="actionPrompt_challenge"></textarea>
+        </div>
+        <p class="hint">Переменные: {url} {title} {summary} {content} {browserContext} {selection}</p>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="saveBtn">💾 Сохранить</button>
+      <button class="btn btn-secondary" id="resetBtn">↺ Сбросить</button>
+      <span class="status" id="status"></span>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
