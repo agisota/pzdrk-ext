@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ESLint
+        run: npm install eslint@8 --no-save
+
+      - name: Lint
+        run: npx eslint *.js  # warnings allowed, errors fail
+
+      - name: Validate version match
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          TAG_VERSION="${TAG_VERSION#v}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: manifest.json=$MANIFEST_VERSION, tag=$TAG_VERSION"
+            exit 1
+          fi
+          echo "Version: $MANIFEST_VERSION"
+
+      - name: Build extension zip
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          zip -r "pzdrk-v${VERSION}.zip" \
+            manifest.json \
+            background.js \
+            content.js \
+            content.css \
+            popup.html \
+            popup.js \
+            options.html \
+            options.js \
+            icons/ \
+            rules/ \
+            -x "*.DS_Store" -x "__MACOSX/*"
+          echo "Built pzdrk-v${VERSION}.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "*.zip"
+          generate_release_notes: true
+
+      # Chrome Web Store upload (uncomment when secrets configured)
+      # - name: Upload to Chrome Web Store
+      #   uses: mnao305/chrome-extension-upload@v4.0.1
+      #   with:
+      #     file-path: "pzdrk-v*.zip"
+      #     extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+      #     client-id: ${{ secrets.CHROME_CLIENT_ID }}
+      #     client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+      #     refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}

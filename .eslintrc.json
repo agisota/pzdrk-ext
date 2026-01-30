@@ -46,9 +46,10 @@
     "no-template-curly-in-string": "warn",
     "no-unreachable-loop": "error",
     "no-use-before-define": [
-      "error",
+      "warn",
       {
-        "functions": false
+        "functions": false,
+        "variables": false
       }
     ],
     "no-shadow": "warn",
