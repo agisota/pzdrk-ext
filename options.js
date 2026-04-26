@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b';
   const LOCAL_OVERRIDES_FILE = 'local-overrides.json';
   const DEFAULT_TARGET_MAX_OUTPUT_TOKENS = 8192;
-  const DEFAULT_MAX_PARALLEL_REQUESTS = 8;
+  const DEFAULT_MAX_PARALLEL_REQUESTS = 12;
   const DEFAULT_PREFETCH_DELAY_MS = 220;
   const PROMPT_OPERATING_SYSTEM = `Режим: staff operator / research copilot.
 - Сначала восстанови цель пользователя, decision surface и рабочий контекст.

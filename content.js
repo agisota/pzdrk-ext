@@ -60,7 +60,7 @@ function estimateTokens(text) {
 const CACHE_PREFIX = 'pzdrk_cache_v4_';
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TARGET_MAX_OUTPUT_TOKENS = 8192;
-const DEFAULT_MAX_PARALLEL_REQUESTS = 8;
+const DEFAULT_MAX_PARALLEL_REQUESTS = 12;
 const MAP_REDUCE_THRESHOLD_TOKENS = 4200;
 const DIRECT_SUMMARY_INPUT_CHARS = 6000;
 const SECTION_ENRICH_INPUT_CHARS = 4800;
@@ -218,8 +218,8 @@ const PROMPTS = {
       "left": ["..."],
       "right": {
         "commentary": ["..."],
-        "terms": [{"term": "...", "definition": "..."}],
-        "entities": [{"name": "...", "context": "...", "exaQuery": "..."}],
+        "terms": [{"term": "...", "definition": "...", "category": "Понятия / Методы / Оригинальные названия"}],
+        "entities": [{"name": "...", "context": "...", "exaQuery": "...", "category": "Люди / Организации / Проекты / Источники"}],
         "refs": [{"query": "...", "why": "..."}]
       }
     },
@@ -250,10 +250,10 @@ const PROMPTS = {
 - left: 4–9 пунктов на секцию (строки без "- "). Делай плотные, проверяемые формулировки с отдельной ценностью в каждом пункте.
 - left: это основная левая колонка. Пиши по-русски, просто, предметно и без канцелярита. Английские слова не используй, если без них можно обойтись.
 - Английские термины, оригинальные названия, продуктовые ярлыки, исходные формулировки и jargon выноси в right.terms и right.commentary, а слева давай понятную русскую формулировку смысла.
-- right.commentary: 2–4 коротких абзаца. Это не повтор left, а углубление: причинно-следственные связи, оговорки, почему это важно, эффекты второго порядка, рамка для решения.
-- right.terms: 4–10. Именно сюда уводи англоязычные термины, оригинальные названия, сокращения и спорные формулировки. Definitions должны помогать понять именно этот материал, а не быть словарными общими фразами.
-- right.entities: 4–8 (exaQuery должен быть осмысленным поисковым запросом, который реально можно отправить в поиск без правки).
-- right.refs: 2–5 референсов на секцию, когда есть смысл проверить спорные места, рынок, людей, технологии или спорные утверждения.
+- right.commentary: 2–4 коротких абзаца с богатым форматированием: *курсив* для нюансов, **жирное** для решающих сигналов, [[term:...]] и [[entity:...]] для важных опор. Это не повтор left, а углубление: причинно-следственные связи, оговорки, эффекты второго порядка, рамка для решения.
+- right.terms: 4–10. Именно сюда уводи англоязычные термины, оригинальные названия, сокращения и спорные формулировки. У каждого термина добавляй category и русскую definition, полезную именно для текущего материала.
+- right.entities: 4–8. У каждой сущности добавляй category: Люди, Организации, Проекты, Источники, Методы, Инструменты или Данные. exaQuery должен быть осмысленным поисковым запросом без правки.
+- right.refs: 2–5 проверок на секцию. Формулируй так, чтобы интерфейс мог отрисовать нумерованный список "Что проверить": факт/метрика/источник + зачем это проверять.
   - В текстовых полях (left/commentary/definition/context/actions) помечай важное через [[entity:...]], [[term:...]], [[evidence:...]], [[action:...]].
   - concrete_prompts: 6–8. Каждый запрос должен быть самодостаточным, конкретным и готовым к немедленному запуску без переписывания.
   - АВТОМАТИЗАЦИИ должны быть практичными: шаблоны автоматизации, проверки, пайплайны, извлечение данных, контрольные вопросы, повторяемые рутины.
@@ -270,15 +270,16 @@ const PROMPTS = {
   "key": "same_key",
   "right": {
     "commentary": ["..."],
-    "terms": [{"term": "...", "definition": "..."}],
-    "entities": [{"name": "...", "context": "...", "exaQuery": "..."}],
+    "terms": [{"term": "...", "definition": "...", "category": "..."}],
+    "entities": [{"name": "...", "context": "...", "exaQuery": "...", "category": "..."}],
     "refs": [{"query": "...", "why": "..."}]
   }
 }
 
 ПРАВИЛА:
 - right.commentary: 3–6 коротких абзацев (часть можно *курсивом*). Нужны причинно-следственные связи, сильные/слабые сигналы, практические нюансы и последствия для решения.
-- terms/entities: по 4–10.
+- terms/entities: по 4–10, обязательно группируй через поле category.
+- refs: 2–5 конкретных проверок; они будут показаны нумерованным списком, поэтому каждая строка должна быть самостоятельным проверочным шагом.
 - В commentary/terms специально выноси оригинальные англоязычные термины, названия и jargon, чтобы левая колонка оставалась на нормальном русском языке.
 - В commentaries/definitions/contexts активно используй [[entity:...]] / [[term:...]] / [[evidence:...]].
 - Не повторяй left буллеты; дополняй, углубляй, добавляй связи/риски/проверки.
@@ -641,7 +642,7 @@ async function getXaiRealtimeClientSecret(ttlSeconds = 300) {
 
 async function getBrowserContext() {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: 'getBrowserContext', days: 30 }, (response) => {
+    chrome.runtime.sendMessage({ action: 'getBrowserContext', hours: 1 }, (response) => {
       if (response?.success) resolve(response.data);
       else resolve({ openTabs: [], recentHistory: [] });
     });
@@ -1341,7 +1342,20 @@ function formatBrowserContext(ctx) {
   };
 
   const lines = [];
-  lines.push(`[BROWSER CONTEXT] window=${ctx.windowDays || '?'}d • generated=${fmt(ctx.generatedAt)}`);
+  const windowLabel = ctx.windowLabel || (ctx.windowHours ? `${ctx.windowHours}h` : `${ctx.windowDays || '?'}d`);
+  lines.push(`[BROWSER CONTEXT] window=${windowLabel} • generated=${fmt(ctx.generatedAt)}`);
+
+  if (ctx.workflowGroups?.length) {
+    lines.push(`\n[WORKFLOW GROUPS: open tabs + last-hour history]`);
+    ctx.workflowGroups.slice(0, 8).forEach(g => {
+      const marker = g.active ? 'ACTIVE ' : '';
+      const signal = g.signal ? ` • signal=${g.signal}` : '';
+      lines.push(`• ${marker}${g.domain} • pages=${g.count || 0}${signal}`);
+      (g.pages || []).slice(0, 3).forEach(p => {
+        lines.push(`  - ${(p.title || '').substring(0, 70)} — ${p.url}`);
+      });
+    });
+  }
 
   if (ctx.openTabs?.length) {
     lines.push(`\n[OPEN TABS: ${ctx.openTabs.length}]`);
@@ -1352,7 +1366,7 @@ function formatBrowserContext(ctx) {
   }
 
   if (ctx.topDomains?.length) {
-    lines.push(`\n[TOP DOMAINS (weighted by visits, ~${ctx.windowDays || '?'}d)]`);
+    lines.push(`\n[TOP DOMAINS (weighted by visits, ~${windowLabel})]`);
     ctx.topDomains.slice(0, 8).forEach(d => {
       lines.push(`• ${d.domain} • visits=${d.visits || 0} • pages=${d.pages || 0} • last=${fmt(d.lastVisitTime)}`);
     });
@@ -1920,11 +1934,12 @@ function formatRichText(text) {
 function buildNoteNav(note) {
   if (!note || !note.isConnected) return;
   const nav = note.querySelector('.pzdrk-note-nav');
-  const summaryBody = note.querySelector('.pzdrk-summary-body');
   const contentEl = note.querySelector('.pzdrk-note-content');
   if (!nav || !contentEl) return;
 
-  const root = summaryBody || contentEl;
+  const activePane = getActiveNotePane(note);
+  const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
+  const root = summaryBody || activePane || contentEl;
   const headings = Array.from(root.querySelectorAll('.pzdrk-section-title')).filter(h => h.id);
   if (headings.length < 2) {
     nav.style.display = 'none';
@@ -1984,10 +1999,11 @@ function updateNoteNavActive(note) {
   if (!note || !note.isConnected) return;
   const nav = note.querySelector('.pzdrk-note-nav');
   const contentEl = note.querySelector('.pzdrk-note-content');
-  const summaryBody = note.querySelector('.pzdrk-summary-body');
   if (!nav || !contentEl) return;
 
-  const root = summaryBody || contentEl;
+  const activePane = getActiveNotePane(note);
+  const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
+  const root = summaryBody || activePane || contentEl;
   const headings = Array.from(root.querySelectorAll('.pzdrk-section-title')).filter(h => h.id);
   const buttons = Array.from(nav.querySelectorAll('.pzdrk-note-nav-item'));
   if (!headings.length || !buttons.length) return;
@@ -1999,6 +2015,439 @@ function updateNoteNavActive(note) {
   }
 
   buttons.forEach(b => b.classList.toggle('is-active', b.dataset.target === activeId));
+}
+
+function getNotePaneSelector(tabId) {
+  const safe = String(tabId || 'main').replace(/["\\]/g, '\\$&');
+  return `.pzdrk-tab-pane[data-tab-id="${safe}"]`;
+}
+
+function ensureNoteWorkspace(note) {
+  if (!note || !note.isConnected) return null;
+  if (note.dataset.layout === 'flyout') return null;
+  const contentEl = note.querySelector('.pzdrk-note-content');
+  if (!contentEl) return null;
+
+  if (!note.__pzdrkTabMeta) note.__pzdrkTabMeta = new Map();
+  if (!Array.isArray(note.__pzdrkTabOrder)) note.__pzdrkTabOrder = [];
+
+  const panes = Array.from(contentEl.children || []).filter(el => el.classList?.contains('pzdrk-tab-pane'));
+  if (!panes.length) {
+    const pane = document.createElement('div');
+    pane.className = 'pzdrk-tab-pane is-active';
+    pane.dataset.tabId = 'main';
+    while (contentEl.firstChild) pane.appendChild(contentEl.firstChild);
+    contentEl.appendChild(pane);
+    note.__pzdrkActiveTabId = 'main';
+  } else if (!note.__pzdrkActiveTabId) {
+    const active = panes.find(pane => pane.classList.contains('is-active')) || panes[0];
+    note.__pzdrkActiveTabId = active?.dataset?.tabId || 'main';
+  }
+
+  if (!note.__pzdrkTabMeta.has('main')) {
+    const title = String(note.querySelector('.pzdrk-note-title')?.textContent || document.title || 'Главная').trim();
+    note.__pzdrkTabMeta.set('main', {
+      id: 'main',
+      title: 'Главная',
+      label: title,
+      group: 'core',
+      kind: 'main',
+      cmdId: 'summarize',
+      status: 'ready',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+  }
+  if (!note.__pzdrkTabOrder.includes('main')) note.__pzdrkTabOrder.unshift('main');
+
+  contentEl.dataset.workspace = 'tabs';
+  note.dataset.workspaceTabs = 'true';
+  bindNoteWorkspaceChrome(note);
+  return contentEl;
+}
+
+function getActiveNotePane(note) {
+  if (!note || !note.isConnected) return null;
+  const contentEl = ensureNoteWorkspace(note) || note.querySelector?.('.pzdrk-note-content');
+  if (!contentEl) return null;
+  const activeId = note.__pzdrkActiveTabId || 'main';
+  return contentEl.querySelector(getNotePaneSelector(activeId)) ||
+    contentEl.querySelector('.pzdrk-tab-pane.is-active') ||
+    contentEl.querySelector('.pzdrk-tab-pane') ||
+    contentEl;
+}
+
+function getNoteTabMeta(note, tabId = 'main') {
+  ensureNoteWorkspace(note);
+  return note?.__pzdrkTabMeta?.get(String(tabId || 'main')) || null;
+}
+
+function getWorkspaceTabIdForCommand(cmd) {
+  const id = String(cmd?.id || cmd?.type || cmd?.title || 'tab').trim();
+  if (!id || id === 'summarize' || id === 'mindmap') return 'main';
+  return `cmd-${slugifyForId(id) || simpleHash32(id)}`;
+}
+
+function upsertNoteTabMeta(note, tabId, meta = {}) {
+  ensureNoteWorkspace(note);
+  if (!note?.__pzdrkTabMeta) return null;
+  const id = String(tabId || 'main');
+  const prev = note.__pzdrkTabMeta.get(id) || { id, createdAt: Date.now() };
+  const next = {
+    ...prev,
+    ...meta,
+    id,
+    title: String(meta.title || prev.title || 'Вкладка').trim(),
+    group: String(meta.group || prev.group || 'analysis').trim(),
+    status: String(meta.status || prev.status || 'ready').trim(),
+    updatedAt: Date.now()
+  };
+  note.__pzdrkTabMeta.set(id, next);
+  if (!note.__pzdrkTabOrder.includes(id)) note.__pzdrkTabOrder.push(id);
+  return next;
+}
+
+function getOrCreateNoteTabPane(note, tabId, meta = {}) {
+  const contentEl = ensureNoteWorkspace(note);
+  if (!contentEl) return null;
+  const id = String(tabId || 'main');
+  let pane = contentEl.querySelector(getNotePaneSelector(id));
+  if (!pane) {
+    pane = document.createElement('div');
+    pane.className = 'pzdrk-tab-pane';
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    contentEl.appendChild(pane);
+  }
+  upsertNoteTabMeta(note, id, meta);
+  return pane;
+}
+
+function syncWorkspaceActionActive(note) {
+  if (!note || !note.isConnected) return;
+  const activeId = note.__pzdrkActiveTabId || 'main';
+  note.querySelectorAll('.pzdrk-note-action[data-tab-id]').forEach(btn => {
+    btn.classList.toggle('is-active', btn.dataset.tabId === activeId);
+  });
+  const pager = note.querySelector('.pzdrk-tab-pager');
+  if (pager) {
+    const order = getVisibleNoteTabOrder(note);
+    const index = Math.max(0, order.indexOf(activeId));
+    const meta = getNoteTabMeta(note, activeId);
+    const label = pager.querySelector('.pzdrk-tab-pager-label');
+    if (label) label.textContent = `${index + 1}/${Math.max(1, order.length)} • ${meta?.title || 'Вкладка'}`;
+  }
+}
+
+function activateNoteTab(note, tabId = 'main', options = {}) {
+  const contentEl = ensureNoteWorkspace(note);
+  if (!contentEl) return;
+  const id = String(tabId || 'main');
+  const pane = getOrCreateNoteTabPane(note, id, { title: id === 'main' ? 'Главная' : 'Вкладка' });
+  if (!pane) return;
+
+  Array.from(contentEl.querySelectorAll('.pzdrk-tab-pane')).forEach(candidate => {
+    const active = candidate === pane;
+    candidate.hidden = !active;
+    candidate.classList.toggle('is-active', active);
+  });
+  note.__pzdrkActiveTabId = id;
+  note.dataset.activeTabId = id;
+  if (options.scrollTop !== false) contentEl.scrollTop = 0;
+
+  buildNoteNav(note);
+  setupHoverInteractions(pane);
+  bindConcretePromptCards(note);
+  syncWorkspaceActionActive(note);
+  updateNoteActionsPlacement(note);
+}
+
+function setNoteTabContent(note, tabId, html, meta = {}, options = {}) {
+  const pane = getOrCreateNoteTabPane(note, tabId, meta);
+  if (!pane) return null;
+  pane.innerHTML = String(html || '');
+  pane.dataset.loaded = meta.status === 'loading' ? 'false' : 'true';
+  upsertNoteTabMeta(note, tabId, meta);
+
+  if (options.activate !== false) {
+    activateNoteTab(note, tabId, { scrollTop: options.scrollTop !== false });
+  } else if ((note.__pzdrkActiveTabId || 'main') === String(tabId || 'main')) {
+    buildNoteNav(note);
+    setupHoverInteractions(pane);
+    bindConcretePromptCards(note);
+  }
+  syncWorkspaceActionActive(note);
+  return pane;
+}
+
+function getVisibleNoteTabOrder(note) {
+  ensureNoteWorkspace(note);
+  const order = Array.isArray(note?.__pzdrkTabOrder) ? note.__pzdrkTabOrder : ['main'];
+  return order.filter(id => {
+    const pane = note.querySelector(getNotePaneSelector(id));
+    return pane && pane.isConnected;
+  });
+}
+
+function cycleNoteTab(note, direction = 1) {
+  const order = getVisibleNoteTabOrder(note);
+  if (!order.length) return;
+  const active = note.__pzdrkActiveTabId || order[0];
+  const index = Math.max(0, order.indexOf(active));
+  const next = order[(index + direction + order.length) % order.length];
+  activateNoteTab(note, next);
+}
+
+function collectNoteTabs(note) {
+  ensureNoteWorkspace(note);
+  const order = getVisibleNoteTabOrder(note);
+  return order.map(id => {
+    const pane = note.querySelector(getNotePaneSelector(id));
+    const meta = getNoteTabMeta(note, id) || {};
+    return {
+      id,
+      title: meta.title || id,
+      group: meta.group || '',
+      kind: meta.kind || '',
+      text: String(pane?.innerText || '').trim(),
+      html: String(pane?.innerHTML || '').trim()
+    };
+  });
+}
+
+function findNoteTabByMention(note, mention = '') {
+  const needle = String(mention || '').replace(/^@/, '').trim().toLowerCase();
+  if (!needle) return null;
+  const tabs = collectNoteTabs(note);
+  return tabs.find(tab => {
+    const keys = [
+      tab.id,
+      tab.title,
+      slugifyForId(tab.title),
+      tab.kind,
+      tab.group
+    ].map(v => String(v || '').toLowerCase()).filter(Boolean);
+    return keys.includes(needle) || keys.some(k => k.startsWith(needle));
+  }) || null;
+}
+
+function renderWorkspaceTabExtras(note, container) {
+  if (!note || !container) return;
+  const tabs = collectNoteTabs(note).filter(tab => {
+    const meta = getNoteTabMeta(note, tab.id) || {};
+    if (tab.id === 'main') return false;
+    if (meta.cmdId) return false;
+    return true;
+  });
+  if (!tabs.length) return;
+
+  const groupEl = document.createElement('div');
+  groupEl.className = 'pzdrk-note-actions-group';
+  groupEl.dataset.group = 'workspace';
+  groupEl.textContent = 'Ответы';
+  container.appendChild(groupEl);
+
+  tabs.forEach(tab => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pzdrk-note-action pzdrk-note-action-tab';
+    btn.dataset.tabId = tab.id;
+    btn.dataset.group = 'workspace';
+    btn.innerHTML = `
+      <span class="pzdrk-note-action-icon">A</span>
+      <span class="pzdrk-note-action-main">
+        <span class="pzdrk-note-action-text">${escapeHtml(tab.title || 'Ответ')}</span>
+        <span class="pzdrk-note-action-hint">${escapeHtml(tab.group || 'Внутренний ответ')}</span>
+      </span>
+    `;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      activateNoteTab(note, tab.id);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function buildObsidianMarkdownBundle(note) {
+  const tabs = collectNoteTabs(note);
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const title = String(note?.querySelector?.('.pzdrk-note-title')?.textContent || document.title || 'pzdrk').trim();
+  const slug = slugifyForId(title || document.title) || `pzdrk-${Date.now()}`;
+  const vaultPath = `${date}/${slug}/index.md`;
+  const browserCtx = formatBrowserContext(browserContext);
+  const activePane = getActiveNotePane(note);
+  const snapshotHtml = String(activePane?.innerHTML || '').slice(0, 24000);
+
+  const lines = [
+    '---',
+    `title: "${title.replace(/"/g, '\\"')}"`,
+    `date: ${date}`,
+    `source: "${window.location.href.replace(/"/g, '\\"')}"`,
+    'tags:',
+    '  - pzdrk',
+    '  - browser-research',
+    `pzdrk_vault_path: "${vaultPath}"`,
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    `Источник: ${window.location.href}`,
+    `Дата сохранения: ${now.toISOString()}`,
+    `Рекомендуемый путь в Obsidian: \`${vaultPath}\``,
+    '',
+    '## Вкладки',
+    ...tabs.map(tab => `- [[${date}/${slug}/${slugifyForId(tab.title || tab.id) || tab.id}|${tab.title || tab.id}]]`),
+    '',
+    '## Контекст браузера',
+    '',
+    '```text',
+    browserCtx,
+    '```',
+    ''
+  ];
+
+  tabs.forEach((tab, index) => {
+    lines.push(`## ${index + 1}. ${tab.title || tab.id}`);
+    if (tab.group) lines.push('', `Группа: ${tab.group}`);
+    lines.push('', tab.text || '_Пустая вкладка_', '');
+  });
+
+  lines.push('## HTML-снимок активной вкладки', '', '```html', snapshotHtml, '```', '');
+  return {
+    markdown: lines.join('\n'),
+    filename: `${date}--${slug}--obsidian.md`,
+    vaultPath
+  };
+}
+
+function downloadObsidianBundle(note) {
+  const bundle = buildObsidianMarkdownBundle(note);
+  const blob = new Blob([bundle.markdown], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = bundle.filename;
+  a.click();
+  setTimeout(() => {
+    try { URL.revokeObjectURL(a.href); } catch (e) { }
+  }, 1000);
+  showToast(`Obsidian Markdown готов: ${bundle.vaultPath}`);
+}
+
+async function submitNoteQuestion(note) {
+  const input = note?.querySelector?.('.pzdrk-note-ask-input');
+  const question = String(input?.value || '').trim();
+  if (!note || !question) return;
+  ensureNoteWorkspace(note);
+
+  const activeId = note.__pzdrkActiveTabId || 'main';
+  const activeTab = collectNoteTabs(note).find(tab => tab.id === activeId) || collectNoteTabs(note)[0];
+  const mentions = Array.from(question.matchAll(/@([\p{L}\p{N}_-]+)/gu)).map(m => m[1]).filter(Boolean);
+  const mentionedTabs = mentions
+    .map(name => findNoteTabByMention(note, name))
+    .filter(Boolean)
+    .filter((tab, index, arr) => arr.findIndex(x => x.id === tab.id) === index);
+  const tabsForContext = [activeTab, ...mentionedTabs.filter(tab => tab.id !== activeTab?.id)].filter(Boolean);
+  const settings = runtimeSettings || await getSettings().catch(() => ({}));
+  const answerId = `answer-${Date.now()}`;
+  const loading = renderStateCard({
+    tone: 'waiting',
+    icon: '...',
+    title: 'Готовлю ответ по вкладке',
+    body: 'Беру активную вкладку, явные @упоминания и браузерный контекст последнего часа.',
+    compact: true
+  });
+
+  setNoteTabContent(note, answerId, loading, {
+    title: 'Ответ',
+    group: 'Вопрос',
+    kind: 'answer',
+    status: 'loading'
+  }, { activate: true });
+  renderFloatingHints(note);
+
+  try {
+    const tabContext = tabsForContext.map(tab => {
+      const body = clipPromptInput(tab.text || '', 4200);
+      return `### TAB ${tab.id}: ${tab.title}\n${body || '—'}`;
+    }).join('\n\n');
+    const prompt = [
+      'Ответь на вопрос пользователя по контексту вкладок pzdrk.',
+      '',
+      `ВОПРОС: ${question}`,
+      '',
+      'КОНТЕКСТ ВКЛАДОК:',
+      tabContext || '—',
+      '',
+      'КОНТЕКСТ БРАУЗЕРА ЗА ПОСЛЕДНИЙ ЧАС:',
+      formatBrowserContext(browserContext),
+      '',
+      'ТРЕБОВАНИЯ:',
+      '1. Пиши по-русски, плотно и проверяемо.',
+      '2. Разделяй факт, вывод и гипотезу.',
+      '3. Если данных не хватает, назови пробел и лучший следующий вопрос.',
+      '4. В конце дай 3 следующих действия или запроса.'
+    ].join('\n');
+    const result = await callGroq(prompt, STYLE_RULES, {
+      temperature: 0.32,
+      max_tokens: getTaskMaxTokens(settings, 1800, 320)
+    });
+    setNoteTabContent(note, answerId, formatRichText(result || '—'), {
+      title: question.slice(0, 34) || 'Ответ',
+      group: 'Вопрос',
+      kind: 'answer',
+      status: 'ready'
+    }, { activate: true });
+    if (input) input.value = '';
+    note.querySelector('.pzdrk-note-askbar')?.classList.remove('has-text');
+  } catch (e) {
+    setNoteTabContent(note, answerId, `<div class="pzdrk-error">Ошибка: ${escapeHtml(e?.message || 'не удалось получить ответ')}</div>`, {
+      title: 'Ошибка ответа',
+      group: 'Вопрос',
+      kind: 'answer',
+      status: 'error'
+    }, { activate: true });
+  } finally {
+    renderFloatingHints(note);
+  }
+}
+
+function bindNoteWorkspaceChrome(note) {
+  if (!note || note.dataset.workspaceChromeBound === 'true') return;
+  note.dataset.workspaceChromeBound = 'true';
+  note.querySelector('.pzdrk-tab-prev')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cycleNoteTab(note, -1);
+  });
+  note.querySelector('.pzdrk-tab-next')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cycleNoteTab(note, 1);
+  });
+
+  const askbar = note.querySelector('.pzdrk-note-askbar');
+  const input = note.querySelector('.pzdrk-note-ask-input');
+  const send = note.querySelector('.pzdrk-note-ask-send');
+  if (input && askbar) {
+    input.addEventListener('input', () => {
+      const hasText = !!String(input.value || '').trim();
+      askbar.classList.toggle('has-text', hasText);
+      if (send) send.disabled = !hasText;
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && String(input.value || '').trim()) {
+        e.preventDefault();
+        submitNoteQuestion(note);
+      }
+    });
+  }
+  send?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    submitNoteQuestion(note);
+  });
 }
 
 function updateNoteNavPlacement(note) {
@@ -2189,6 +2638,7 @@ function createNote(options = {}) {
             <button class="pzdrk-btn-icon pzdrk-btn-speak" title="Озвучить (V)">🔊</button>
             <button class="pzdrk-btn-icon pzdrk-btn-copy" title="Копировать">📋</button>
             <button class="pzdrk-btn-icon pzdrk-btn-download" title="Скачать">💾</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-obsidian" title="Сохранить в Obsidian">Ob</button>
           </div>
           <span class="pzdrk-note-tool-divider" aria-hidden="true"></span>
           <div class="pzdrk-note-tool-group pzdrk-note-tool-group-shell">
@@ -2198,6 +2648,15 @@ function createNote(options = {}) {
         </div>
       </div>
       <div class="pzdrk-note-content">${content}</div>
+      <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
+        <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
+        <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
+        <button class="pzdrk-tab-round pzdrk-tab-next" type="button" title="Следующая вкладка">›</button>
+      </div>
+      <div class="pzdrk-note-askbar">
+        <input class="pzdrk-note-ask-input" type="text" autocomplete="off" placeholder="Задать вопрос по вкладке; @главная или @ответ подтянут контекст" />
+        <button class="pzdrk-note-ask-send" type="button" disabled title="Отправить вопрос">Enter</button>
+      </div>
     </div>
     <div class="pzdrk-note-nav" aria-label="Navigation"></div>
     <div class="pzdrk-note-actions" aria-label="Actions"></div>
@@ -2206,6 +2665,7 @@ function createNote(options = {}) {
   document.body.appendChild(note);
   currentNotes.push(note);
   bringNoteToFront(note);
+  bindNoteWorkspaceChrome(note);
   if (layout === 'grid') scheduleLayoutNotes();
 
   const observer = ensureNoteResizeObserver();
@@ -2346,6 +2806,14 @@ function createNote(options = {}) {
     showToast('💾 Скачано');
   });
 
+  note.querySelector('.pzdrk-btn-obsidian')?.addEventListener('click', () => {
+    try {
+      downloadObsidianBundle(note);
+    } catch (e) {
+      showToast('Obsidian: ' + (e?.message || 'ошибка экспорта'));
+    }
+  });
+
   // SPEAK button = READ ALOUD the summary using Grok Voice
   note.querySelector('.pzdrk-btn-speak').addEventListener('click', async () => {
     const btn = note.querySelector('.pzdrk-btn-speak');
@@ -2388,8 +2856,8 @@ function createNote(options = {}) {
     setTimeout(() => btn.textContent = '🔊', 3000);
   });
 
-  // MINDMAP button = generate mindmap in NEW note
-  note.querySelector('.pzdrk-btn-mindmap').addEventListener('click', () => generateMindmap(note));
+  // MINDMAP button = update map section inside the main tab
+  note.querySelector('.pzdrk-btn-mindmap').addEventListener('click', () => generateMindmap(note, { inline: true }));
 
   // Update privacy badge
   getTrackerStats().then(stats => {
@@ -3175,19 +3643,27 @@ function normalizeSummaryRightBlock(right) {
   const commentary = normalizeSummaryTextList(r.commentary, 6, 420);
 
   const terms = (Array.isArray(r.terms) ? r.terms : [])
-    .map(item => ({
-      term: normalizeSummaryParagraph(item?.term || item?.name || item?.label || item, 80),
-      definition: normalizeSummaryParagraph(item?.definition || item?.description || item?.meaning || item?.context || item?.value, 260)
-    }))
+    .map(item => {
+      const category = normalizeSummaryParagraph(item?.category || item?.group || item?.type || '', 80);
+      return {
+        term: normalizeSummaryParagraph(item?.term || item?.name || item?.label || item, 80),
+        definition: normalizeSummaryParagraph(item?.definition || item?.description || item?.meaning || item?.context || item?.value, 260),
+        ...(category ? { category } : {})
+      };
+    })
     .filter(item => item.term || item.definition)
     .slice(0, 10);
 
   const entities = (Array.isArray(r.entities) ? r.entities : [])
-    .map(item => ({
-      name: normalizeSummaryParagraph(item?.name || item?.title || item?.label || item, 80),
-      context: normalizeSummaryParagraph(item?.context || item?.description || item?.role || item?.summary, 220),
-      exaQuery: normalizeSummaryParagraph(item?.exaQuery || item?.query || item?.search || item?.lookup, 160)
-    }))
+    .map(item => {
+      const category = normalizeSummaryParagraph(item?.category || item?.group || item?.type || '', 80);
+      return {
+        name: normalizeSummaryParagraph(item?.name || item?.title || item?.label || item, 80),
+        context: normalizeSummaryParagraph(item?.context || item?.description || item?.role || item?.summary, 220),
+        exaQuery: normalizeSummaryParagraph(item?.exaQuery || item?.query || item?.search || item?.lookup, 160),
+        ...(category ? { category } : {})
+      };
+    })
     .filter(item => item.name)
     .slice(0, 12);
 
@@ -3445,6 +3921,87 @@ function ensureConcretePrompts(summaryObj, options = {}) {
 
   summaryObj.concrete_prompts = out;
   return out;
+}
+
+function buildFallbackWorkflowSuggestions(summaryObj, title = '') {
+  const sourceTitle = String(title || summaryObj?.title || document.title || 'текущая страница').trim();
+  const prompts = ensureConcretePrompts(summaryObj || {}, { title: sourceTitle });
+  const fromPrompts = prompts.map(item => ({
+    title: item.title,
+    desc: item.desc || 'Готовый следующий запрос по материалу.',
+    prompt: item.prompt
+  }));
+
+  const sections = Array.isArray(summaryObj?.sections) ? orderSummarySections(summaryObj).slice(0, 5) : [];
+  const fromSections = sections.map(section => {
+    const label = String(section?.label || 'раздел').toLowerCase();
+    return {
+      title: `Углубить: ${section?.label || 'раздел'}`.slice(0, 72),
+      desc: `Собрать рабочий бриф по разделу "${section?.label || label}" с фактами, рисками и действиями.`,
+      prompt: [
+        `Используй сводку страницы "${sourceTitle}" и углуби раздел "${section?.label || label}".`,
+        'Верни: 1) суть, 2) факты, 3) спорные места, 4) что проверить, 5) следующий лучший шаг.',
+        'Пиши по-русски, без воды, отделяй факт от вывода.'
+      ].join('\n')
+    };
+  });
+
+  const deterministic = [
+    {
+      title: 'План проверки',
+      desc: 'Собрать короткий список проверок, источников и критериев готовности.',
+      prompt: `Составь план проверки по странице "${sourceTitle}": факты, источники, вопросы, критерии готовности и порядок выполнения.`
+    },
+    {
+      title: 'Связать с задачей',
+      desc: 'Понять, как материал связан с текущим браузерным workflow.',
+      prompt: `Сопоставь страницу "${sourceTitle}" с открытыми вкладками и историей последнего часа. Выдели вероятный рабочий сценарий, зависимости и следующий шаг.`
+    },
+    {
+      title: 'Закладки и чтение',
+      desc: 'Собрать, что сохранить, прочитать и использовать дальше.',
+      prompt: `По странице "${sourceTitle}" предложи, что добавить в закладки, что изучить дальше, какие запросы выполнить и какие материалы найти.`
+    }
+  ];
+
+  const out = [];
+  const seen = new Set();
+  [...fromPrompts, ...fromSections, ...deterministic].forEach(item => {
+    const key = String(item.title || item.prompt || '').toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  });
+  return out.slice(0, 12);
+}
+
+function buildFallbackRelatedLinks(summaryObj, title = '') {
+  const sourceTitle = String(title || summaryObj?.title || document.title || '').trim();
+  const terms = (Array.isArray(summaryObj?.sections) ? summaryObj.sections : [])
+    .flatMap(section => Array.isArray(section?.right?.terms) ? section.right.terms : [])
+    .map(term => term?.term || term?.name || '')
+    .filter(Boolean)
+    .slice(0, 4);
+  const queries = [
+    sourceTitle,
+    ...terms,
+    `${sourceTitle} обзор`,
+    `${sourceTitle} критика`
+  ].map(q => normalizeSummaryParagraph(q, 120)).filter(Boolean);
+
+  const out = [];
+  const seen = new Set();
+  queries.forEach(query => {
+    const key = query.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      title: `Найти похожее: ${query}`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+      fallback: true
+    });
+  });
+  return out.slice(0, 4);
 }
 
 function renderConcretePromptCards(prompts) {
@@ -3807,22 +4364,43 @@ function renderRightBlock(right) {
 
   let html = '';
 
+  const inferGroup = (value, fallback = 'Без группы') => {
+    const raw = String(value || '').trim();
+    if (raw) return raw;
+    return fallback;
+  };
+
+  const renderGroupedList = (items, groupFn, lineFn) => {
+    const groups = new Map();
+    items.forEach((item) => {
+      const group = inferGroup(groupFn(item));
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(item);
+    });
+
+    return Array.from(groups.entries()).map(([group, groupItems]) => {
+      const lines = groupItems.map(lineFn).filter(Boolean).join('\n');
+      if (!lines) return '';
+      return `### ${group}\n${lines}`;
+    }).filter(Boolean).join('\n\n');
+  };
+
   if (commentary.length) {
     html += renderSummarySidecard('Комментарий', formatRichText(commentary.join('\n\n')), 'neutral');
   }
 
   if (terms.length) {
-    const lines = terms.slice(0, 10).map(t => {
+    const lines = renderGroupedList(terms.slice(0, 10), t => t?.category || 'Термины и исходные названия', t => {
       const term = normalizeSummaryParagraph(t?.term, 80);
       const def = normalizeSummaryParagraph(t?.definition, 260);
       if (!term && !def) return '';
       return `- **${term || '—'}**: ${def}`;
-    }).filter(Boolean).join('\n');
+    });
     html += renderSummarySidecard('Термины и оригинальные названия', formatRichText(lines), 'neutral');
   }
 
   if (entities.length) {
-    const lines = entities.slice(0, 12).map(e => {
+    const lines = renderGroupedList(entities.slice(0, 12), e => e?.category || 'Люди, организации и артефакты', e => {
       const name = normalizeSummaryParagraph(e?.name, 80);
       const ctx = normalizeSummaryParagraph(e?.context, 220);
       const q = normalizeSummaryParagraph(e?.exaQuery, 160);
@@ -3831,7 +4409,7 @@ function renderRightBlock(right) {
       const hint = ctx ? ` — ${ctx}` : '';
       const qHint = q ? ` *(поисковый запрос: ${q})*` : '';
       return `- ${tag}${hint}${qHint}`;
-    }).filter(Boolean).join('\n');
+    });
     html += renderSummarySidecard('Сущности и имена', formatRichText(lines), 'neutral');
   }
 
@@ -3840,9 +4418,14 @@ function renderRightBlock(right) {
       const q = normalizeSummaryParagraph(rf?.query, 180);
       const why = normalizeSummaryParagraph(rf?.why, 180);
       if (!q) return '';
-      return `- ${q}${why ? ` — *${why}*` : ''}`;
+      return `${q}${why ? ` — *${why}*` : ''}`;
     }).filter(Boolean).join('\n');
-    html += renderSummarySidecard('Что проверить', formatRichText(lines), refs.length > 2 ? 'waiting' : 'neutral');
+    const ordered = lines
+      .split('\n')
+      .filter(Boolean)
+      .map((line, index) => `${index + 1}. ${line}`)
+      .join('\n');
+    html += renderSummarySidecard('Что проверить', formatRichText(ordered), refs.length > 2 ? 'waiting' : 'neutral');
   }
 
   return html || renderStateCard({
@@ -4462,6 +5045,9 @@ async function summarizePage() {
 	    bindConcretePromptCards(note);
 	    bindSummarySceneBoard(note, cachedJson);
 	    createFloatingHints(note);
+	    setTimeout(() => {
+	      if (note.isConnected) generateMindmap(note, { inline: true }).catch(() => { });
+	    }, 250);
 	    maybeAutoSpeakSummary(settings);
     isProcessing = false;
     showToast('⚡ Из кэша');
@@ -4607,7 +5193,14 @@ async function summarizePage() {
     const relatedId = `pzdrk-related-${note.dataset.noteId || Date.now()}`;
     html += `<div class="pzdrk-related-section" id="${relatedId}"><div class="pzdrk-section-title">🔗 Похожее & Next Steps</div>${renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Подтягиваю похожие сценарии', body: 'Параллельные lanes собирают workflow-плитки и дополнительные next steps.', compact: true })}</div>`;
 
-    note.querySelector('.pzdrk-note-content').innerHTML = html;
+    setNoteTabContent(note, 'main', html, {
+      title: 'Главная',
+      label: cleanTitle || document.title || 'Сводка',
+      group: 'core',
+      kind: 'main',
+      cmdId: 'summarize',
+      status: 'ready'
+    }, { activate: true });
     note.classList.remove('loading');
 
     buildNoteNav(note);
@@ -4627,6 +5220,11 @@ async function summarizePage() {
 
     // Store data for mindmap/challenge (searchResults filled later)
     lastSummaryData = { content: lastSummaryContent, headings, searchResults: [], ranking, pageContent, summaryJson };
+
+    // Build the map into the main tab after the summary is readable.
+    setTimeout(() => {
+      if (note.isConnected) generateMindmap(note, { inline: true }).catch(() => { });
+    }, 250);
 
     // Optional auto-speak (best effort; may be blocked by autoplay policy)
     maybeAutoSpeakSummary(settings);
@@ -4666,8 +5264,14 @@ async function summarizePage() {
         const relatedEl = note.querySelector(`#${esc}`);
         if (!relatedEl) return;
 
-        const sr = Array.isArray(relatedState.searchResults) ? relatedState.searchResults : [];
-        const wf = Array.isArray(relatedState.workflowSuggestions) ? relatedState.workflowSuggestions : [];
+        const fallbackLinks = buildFallbackRelatedLinks(summaryJson, cleanTitle || document.title);
+        const fallbackWorkflows = buildFallbackWorkflowSuggestions(summaryJson || {}, cleanTitle || document.title);
+        const sr = (Array.isArray(relatedState.searchResults) && relatedState.searchResults.length)
+          ? relatedState.searchResults
+          : fallbackLinks;
+        const wf = (Array.isArray(relatedState.workflowSuggestions) && relatedState.workflowSuggestions.length)
+          ? relatedState.workflowSuggestions
+          : fallbackWorkflows;
 
         if (lastSummaryData) lastSummaryData.searchResults = sr;
 
@@ -4707,9 +5311,7 @@ async function summarizePage() {
         }
 
         if (!sr.length && !wf.length) {
-          relHtml += (relatedState.searchDone && relatedState.workflowsDone)
-            ? renderStateCard({ tone: 'muted', icon: '·', title: 'Дополнений пока нет', body: 'Сценарии и похожие материалы не дали достаточно уверенных совпадений.', compact: true })
-            : renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Параллельные потоки ещё работают', body: 'Скоро сюда добавятся похожие кейсы и готовые сценарии действий.', compact: true });
+          relHtml += renderStateCard({ tone: 'waiting', icon: '...', title: 'Собираю следующий слой', body: 'Если поиск ничего не вернёт, останется локальный набор следующих действий по текущей сводке.', compact: true });
         }
 
         relatedEl.innerHTML = relHtml;
@@ -4718,17 +5320,30 @@ async function summarizePage() {
         relatedEl.querySelectorAll('.pzdrk-workflow-tile').forEach(tile => {
           tile.addEventListener('click', async () => {
             const prompt = tile.dataset.prompt;
-            const newNote = createNote({ title: 'Сценарий', type: 'action', content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div></div>', collapsed: false, loading: true });
-            newNote.dataset.pinned = 'true';
+            const tabId = `workflow-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+            setNoteTabContent(note, tabId, renderStateCard({ tone: 'waiting', icon: '...', title: 'Запускаю сценарий', body: 'Результат появится как новая вкладка внутри этой карточки.', compact: true }), {
+              title: tile.querySelector('.pzdrk-workflow-title')?.textContent || 'Сценарий',
+              group: 'Сценарий',
+              kind: 'answer',
+              status: 'loading'
+            }, { activate: true });
             try {
               const res = await callGroq(prompt, STYLE_RULES, { temperature: 0.3, max_tokens: getTaskMaxTokens(settings, 1800, 256) });
-              newNote.querySelector('.pzdrk-note-content').innerHTML = formatRichText(res);
-              newNote.classList.remove('loading');
-              setupHoverInteractions(newNote);
+              setNoteTabContent(note, tabId, formatRichText(res), {
+                title: tile.querySelector('.pzdrk-workflow-title')?.textContent || 'Сценарий',
+                group: 'Сценарий',
+                kind: 'answer',
+                status: 'ready'
+              }, { activate: true });
             } catch (e) {
-              newNote.querySelector('.pzdrk-note-content').innerHTML = `<div class="pzdrk-error">❌ ${e.message}</div>`;
-              newNote.classList.remove('loading');
+              setNoteTabContent(note, tabId, `<div class="pzdrk-error">Ошибка сценария: ${escapeHtml(e.message)}</div>`, {
+                title: 'Ошибка сценария',
+                group: 'Сценарий',
+                kind: 'answer',
+                status: 'error'
+              }, { activate: true });
             }
+            renderFloatingHints(note);
           });
         });
 
@@ -4979,7 +5594,8 @@ function getSelectionText() {
 function extractSourceNoteContext(sourceNote = null) {
   if (!sourceNote || !sourceNote.isConnected) return null;
   const title = String(sourceNote.querySelector('.pzdrk-note-title')?.textContent || '').trim();
-  const rawText = String(sourceNote.querySelector('.pzdrk-note-content')?.innerText || '').trim();
+  const activePane = getActiveNotePane(sourceNote);
+  const rawText = String(activePane?.innerText || sourceNote.querySelector('.pzdrk-note-content')?.innerText || '').trim();
   const excerpt = clipPromptInput(rawText, Math.max(900, Math.min(COMMAND_CONTEXT_INPUT_CHARS - 500, 3200)));
   if (!title && !excerpt) return null;
   return {
@@ -7244,6 +7860,7 @@ SUMMARY:
 // Back-compat name: this now attaches the action panel *inside* a note.
 function createFloatingHints(noteElement) {
   if (!noteElement || !noteElement.isConnected) return;
+  ensureNoteWorkspace(noteElement);
   noteElement.dataset.actionsEnabled = 'true';
   actionsAnchorNote = noteElement;
 
@@ -7284,6 +7901,125 @@ function getHintCommands() {
   });
 }
 
+async function translatePageIntoWorkspaceTab(note, tabId, lang = 'ru') {
+  const content = lastSummaryData?.pageContent || extractPageContent();
+  if (!content || content.trim().length === 0) throw new Error('Нет содержимого для перевода');
+
+  const langNames = { 'ru': 'Русский', 'en': 'English', 'de': 'Deutsch', 'fr': 'Français', 'es': 'Español', 'zh': '中文', 'ja': '日本語' };
+  const langName = langNames[lang] || lang.toUpperCase();
+  const loadingMsg = lang === 'ru' ? 'Перевожу страницу' : 'Translating page';
+  const renderProgress = (p) => {
+    const done = Number(p?.done || 0);
+    const total = Number(p?.total || 0);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const raw = String(p?.rendered || '');
+    const preview = raw.length > 18000 ? `${raw.slice(0, 18000)}\n\n...` : raw;
+    setNoteTabContent(note, tabId, `
+      <div class="pzdrk-tab-progress">
+        <div class="pzdrk-loading"><div class="pzdrk-spinner"></div>${escapeHtml(loadingMsg)}</div>
+        <div class="pzdrk-tab-progress-count">${done}/${total || '?'}${total ? ` • ${pct}%` : ''}</div>
+      </div>
+      <div class="pzdrk-prewrap">${escapeHtml(preview || '')}</div>
+    `, {
+      title: `Перевод (${langName})`,
+      group: 'core',
+      kind: 'command',
+      cmdId: 'translate_page',
+      status: 'loading'
+    }, { activate: false, scrollTop: false });
+  };
+
+  renderProgress({ done: 0, total: 0, rendered: '' });
+  const translated = await translateLargeText(content, lang, renderProgress);
+  return formatRichText(translated || '—');
+}
+
+async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
+  if (!cmd || !sourceNote || !sourceNote.isConnected) return runCommand(cmd, { sourceNote });
+  ensureNoteWorkspace(sourceNote);
+
+  if (cmd.id === 'summarize') {
+    activateNoteTab(sourceNote, 'main');
+    return;
+  }
+
+  if (cmd.id === 'mindmap') {
+    activateNoteTab(sourceNote, 'main', { scrollTop: false });
+    await generateMindmap(sourceNote, { inline: true });
+    return;
+  }
+
+  const tabId = getWorkspaceTabIdForCommand(cmd);
+  const title = String(cmd.title || cmd.id || 'Вкладка').trim();
+  const group = getCommandGroup(cmd);
+  const meta = {
+    title,
+    group,
+    kind: 'command',
+    cmdId: cmd.id || tabId,
+    status: 'loading'
+  };
+  const existingMeta = getNoteTabMeta(sourceNote, tabId);
+  const existingPane = sourceNote.querySelector(getNotePaneSelector(tabId));
+
+  if (existingPane && existingMeta?.status === 'ready' && !anchorEl?.classList?.contains('force-refresh')) {
+    activateNoteTab(sourceNote, tabId);
+    return;
+  }
+
+  setNoteTabContent(sourceNote, tabId, renderStateCard({
+    tone: 'waiting',
+    icon: '...',
+    title: `Генерирую вкладку "${title}"`,
+    body: 'Команда выполняется внутри текущей страницы, без отдельного всплывающего окна.',
+    compact: true
+  }), meta, { activate: true });
+
+  try {
+    const settings = runtimeSettings || await getSettings().catch(() => ({}));
+    let html = '';
+
+    if (cmd.id === 'translate_page') {
+      html = await translatePageIntoWorkspaceTab(sourceNote, tabId, 'ru');
+    } else if (isActionFlyoutCommand(cmd)) {
+      const cacheKey = getFlyoutCacheKey(cmd, sourceNote);
+      const cached = flyoutPrefetchCache.get(cacheKey);
+      if (cached?.status === 'done' && cached.html) {
+        html = String(cached.html);
+      } else {
+        const output = await buildFlyoutOutput(cmd, settings, sourceNote);
+        html = formatRichText(output || '—');
+        flyoutPrefetchCache.set(cacheKey, {
+          status: 'done',
+          html,
+          text: String(output || ''),
+          error: '',
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
+          promise: null
+        });
+        pruneFlyoutPrefetchCache();
+      }
+    } else {
+      await runCommand(cmd, { sourceNote });
+      return;
+    }
+
+    setNoteTabContent(sourceNote, tabId, html, {
+      ...meta,
+      status: 'ready'
+    }, { activate: true });
+  } catch (e) {
+    setNoteTabContent(sourceNote, tabId, `<div class="pzdrk-error">Ошибка команды: ${escapeHtml(e?.message || 'не удалось выполнить')}</div>`, {
+      ...meta,
+      status: 'error'
+    }, { activate: true });
+  } finally {
+    renderFloatingHints(sourceNote);
+    updateNoteActionsPlacement(sourceNote);
+  }
+}
+
 function renderFloatingHints(noteElement = null) {
   const hasSelection = !!getSelectionText();
   const cmds = getHintCommands();
@@ -7316,6 +8052,7 @@ function renderFloatingHints(noteElement = null) {
       btn.className = `pzdrk-note-action${cmd.scope === 'selection' ? ' is-selection' : ''}`;
       btn.setAttribute('data-cmd', cmd.id);
       btn.dataset.group = group;
+      btn.dataset.tabId = getWorkspaceTabIdForCommand(cmd);
 
       const key = (cmd.key || '').toString().toUpperCase();
       const disabled = (cmd.scope === 'selection') && !hasSelection;
@@ -7332,21 +8069,7 @@ function renderFloatingHints(noteElement = null) {
       btn.title = `${cmd.title || cmd.id}${cmd.hint ? ` — ${cmd.hint}` : ''}${key ? ` (${key})` : ''}`;
 
       const isFlyout = isActionFlyoutCommand(cmd);
-      if (isFlyout) {
-        btn.addEventListener('mouseenter', () => {
-          if (btn.disabled) return;
-          showActionFlyoutPreview(cmd, btn, note);
-          maybeScheduleFlyoutPrefetch(cmd, btn, note);
-        });
-        btn.addEventListener('mouseleave', () => {
-          if (actionFlyout?.prefetchTimer) {
-            clearTimeout(actionFlyout.prefetchTimer);
-            actionFlyout.prefetchTimer = null;
-          }
-          if (actionFlyout?.pinned) return;
-          scheduleHideActionFlyout();
-        });
-      }
+      btn.classList.toggle('is-workspace-tab', isFlyout || cmd.id === 'translate_page' || cmd.id === 'mindmap' || cmd.id === 'summarize');
 
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
@@ -7354,57 +8077,18 @@ function renderFloatingHints(noteElement = null) {
         if (btn.disabled) return;
 
         const keyEl = btn.querySelector('.pzdrk-note-action-key');
-        if (keyEl) keyEl.textContent = '⏳';
+        if (keyEl) keyEl.textContent = '...';
         btn.disabled = true;
+        btn.classList.add('is-loading');
 
         try {
-          if (isFlyout) {
-            const cacheKey = getFlyoutCacheKey(cmd, note);
-            const cached = flyoutPrefetchCache.get(cacheKey);
-            const cardNote = createActionCardNote(cmd, btn, note);
-
-            if (cached?.status === 'done' && cached.html) {
-              setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', String(cached.html), false);
-              cardNote.classList.remove('loading');
-              setupHoverInteractions(cardNote);
-            } else if (cached?.status === 'error') {
-              setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', `<div class="pzdrk-error">❌ ${escapeHtml(cached.error || 'ошибка')}</div>`, false);
-              cardNote.classList.remove('loading');
-            } else {
-              if (cached?.status === 'pending' && cached.promise) {
-                await cached.promise.catch(() => null);
-              } else {
-                flyoutPrefetchCache.set(cacheKey, { status: 'pending', html: '', text: '', error: '', startedAt: Date.now(), finishedAt: 0, promise: null });
-                pruneFlyoutPrefetchCache();
-                await runFlyoutCommand(cmd, cardNote, btn, note);
-                const html = cardNote.querySelector('.pzdrk-note-content')?.innerHTML || '';
-                const text = cardNote.querySelector('.pzdrk-note-content')?.innerText || '';
-                const failed = cardNote.querySelector('.pzdrk-error');
-                flyoutPrefetchCache.set(cacheKey, {
-                  status: failed ? 'error' : 'done',
-                  html,
-                  text,
-                  error: failed ? failed.textContent || 'ошибка' : '',
-                  startedAt: Date.now(),
-                  finishedAt: Date.now(),
-                  promise: null
-                });
-                pruneFlyoutPrefetchCache();
-              }
-
-              const resolved = flyoutPrefetchCache.get(cacheKey);
-              if (resolved?.status === 'done' && resolved.html) {
-                setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', String(resolved.html), false);
-              } else if (resolved?.status === 'error') {
-                setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', `<div class="pzdrk-error">❌ ${escapeHtml(resolved.error || 'ошибка')}</div>`, false);
-              }
-              cardNote.classList.remove('loading');
-              setupHoverInteractions(cardNote);
-            }
+          if (isFlyout || ['summarize', 'translate_page', 'mindmap'].includes(cmd.id)) {
+            await openCommandInWorkspaceTab(cmd, note, btn);
           } else {
             await runCommand(cmd, { sourceNote: note });
           }
         } finally {
+          btn.classList.remove('is-loading');
           renderFloatingHints(note);
           updateNoteActionsPlacement(note);
         }
@@ -7413,6 +8097,9 @@ function renderFloatingHints(noteElement = null) {
       container.appendChild(btn);
       btnById.set(cmd.id, btn);
     });
+
+    renderWorkspaceTabExtras(note, container);
+    syncWorkspaceActionActive(note);
 
     updateNoteActionsPlacement(note);
 
@@ -7528,10 +8215,40 @@ async function executeAction(action, options = {}) {
 
 // ============ MINDMAP v2 (Deep Parallel) ============
 
-async function generateMindmap(sourceNote = null) {
+function ensureInlineMindmapTarget(note) {
+  if (!note || !note.isConnected) return null;
+  ensureNoteWorkspace(note);
+  const mainPane = getOrCreateNoteTabPane(note, 'main', {
+    title: 'Главная',
+    group: 'core',
+    kind: 'main',
+    cmdId: 'summarize',
+    status: 'ready'
+  });
+  if (!mainPane) return null;
+
+  let section = mainPane.querySelector('[data-pzdrk-inline-mindmap]');
+  if (!section) {
+    section = document.createElement('div');
+    section.className = 'pzdrk-section pzdrk-inline-map-section';
+    section.dataset.sec = 'workspace-map';
+    section.setAttribute('data-pzdrk-inline-mindmap', 'true');
+    section.innerHTML = `
+      <div class="pzdrk-section-title" id="pzdrk-sec-workspace-map">Карта</div>
+      <div class="pzdrk-section-intro">Кластерная карта этой страницы встроена в главную вкладку, чтобы не разносить смысл по отдельным окнам.</div>
+      <div class="pzdrk-inline-map-body"></div>
+    `;
+    const related = mainPane.querySelector('.pzdrk-related-section');
+    if (related?.parentElement === mainPane) mainPane.insertBefore(section, related);
+    else mainPane.appendChild(section);
+  }
+  return section.querySelector('.pzdrk-inline-map-body') || section;
+}
+
+async function generateMindmap(sourceNote = null, options = {}) {
   const settings = runtimeSettings || await getSettings().catch(() => ({}));
   const rawPageContent = lastSummaryData?.pageContent || extractPageContent();
-  const sourceText = String(sourceNote?.querySelector?.('.pzdrk-note-content')?.innerText || '').trim();
+  const sourceText = String(getActiveNotePane(sourceNote)?.innerText || sourceNote?.querySelector?.('.pzdrk-note-content')?.innerText || '').trim();
   const sourceTitle = String(sourceNote?.querySelector?.('.pzdrk-note-title')?.textContent || '').trim();
   const content = clipPromptInput(
     sourceText
@@ -7546,7 +8263,8 @@ async function generateMindmap(sourceNote = null) {
     1600
   );
 
-  const note = createNote({
+  const inlineMode = !!options.inline && sourceNote && sourceNote.isConnected && sourceNote.dataset.layout !== 'flyout';
+  const note = inlineMode ? sourceNote : createNote({
     title: 'Карта',
     type: 'mindmap',
     content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Собираю карту темы…</div>',
@@ -7555,12 +8273,14 @@ async function generateMindmap(sourceNote = null) {
   });
   note.dataset.pinned = 'true';
   note.dataset.actionsEnabled = 'true';
-  note.style.width = 'min(1040px, calc(100vw - 56px))';
-  note.style.maxWidth = 'min(1040px, calc(100vw - 32px))';
-  note.style.maxHeight = '82vh';
+  if (!inlineMode) {
+    note.style.width = 'min(1040px, calc(100vw - 56px))';
+    note.style.maxWidth = 'min(1040px, calc(100vw - 32px))';
+    note.style.maxHeight = '82vh';
+  }
 
   try {
-    const contentEl = note.querySelector('.pzdrk-note-content');
+    const contentEl = inlineMode ? ensureInlineMindmapTarget(note) : note.querySelector('.pzdrk-note-content');
     const setMindmapStage = (title, detail = '') => {
       if (!contentEl) return;
       contentEl.innerHTML = renderStateCard({
@@ -7891,15 +8611,22 @@ async function generateMindmap(sourceNote = null) {
 
     html += `</div>`;
 
-    note.querySelector('.pzdrk-note-content').innerHTML = html;
+    contentEl.innerHTML = html;
     note.classList.remove('loading');
+    if (inlineMode) {
+      upsertNoteTabMeta(note, 'main', { status: 'ready', updatedAt: Date.now() });
+      activateNoteTab(note, 'main', { scrollTop: false });
+      const section = note.querySelector('[data-pzdrk-inline-mindmap]');
+      section?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    }
     const titleEl = note.querySelector('.pzdrk-note-title');
-    if (titleEl) titleEl.textContent = String(data.title || 'Карта').slice(0, 60);
-    const treeEl = note.querySelector('.pzdrk-mindmap');
-    const searchInput = note.querySelector('[data-mm-search]');
-    const searchStatus = note.querySelector('[data-mm-search-status]');
-    const emptyState = note.querySelector('[data-mm-empty]');
-    const modeButtons = Array.from(note.querySelectorAll('[data-mm-mode]'));
+    if (titleEl && !inlineMode) titleEl.textContent = String(data.title || 'Карта').slice(0, 60);
+    const mindmapRoot = inlineMode ? contentEl : note;
+    const treeEl = mindmapRoot.querySelector('.pzdrk-mindmap');
+    const searchInput = mindmapRoot.querySelector('[data-mm-search]');
+    const searchStatus = mindmapRoot.querySelector('[data-mm-search-status]');
+    const emptyState = mindmapRoot.querySelector('[data-mm-empty]');
+    const modeButtons = Array.from(mindmapRoot.querySelectorAll('[data-mm-mode]'));
     applyMindmapExpandToLevel(treeEl, 3);
     refreshMindmapGroupTitleVisibility(treeEl);
 
@@ -7989,7 +8716,7 @@ async function generateMindmap(sourceNote = null) {
     });
 
     // Toggle behavior
-    note.querySelectorAll('.pzdrk-mm-header').forEach(header => {
+    mindmapRoot.querySelectorAll('.pzdrk-mm-header').forEach(header => {
       header.addEventListener('click', (e) => {
         e.stopPropagation();
         const nodeEl = header.parentElement;
@@ -7998,7 +8725,7 @@ async function generateMindmap(sourceNote = null) {
       });
     });
 
-    note.querySelectorAll('[data-mm-action]').forEach(btn => {
+    mindmapRoot.querySelectorAll('[data-mm-action]').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -8044,7 +8771,7 @@ async function generateMindmap(sourceNote = null) {
       });
     });
 
-    note.querySelectorAll('[data-mm-focus]').forEach((btn) => {
+    mindmapRoot.querySelectorAll('[data-mm-focus]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -8052,7 +8779,7 @@ async function generateMindmap(sourceNote = null) {
       });
     });
 
-    note.querySelectorAll('[data-mm-jump]').forEach((btn) => {
+    mindmapRoot.querySelectorAll('[data-mm-jump]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -8064,7 +8791,8 @@ async function generateMindmap(sourceNote = null) {
     createFloatingHints(note);
 
   } catch (error) {
-    note.querySelector('.pzdrk-note-content').innerHTML = `<div class="pzdrk-error">❌ ${error.message}</div>`;
+    const contentEl = inlineMode ? ensureInlineMindmapTarget(note) : note.querySelector('.pzdrk-note-content');
+    if (contentEl) contentEl.innerHTML = `<div class="pzdrk-error">Ошибка карты: ${escapeHtml(error.message)}</div>`;
     note.classList.remove('loading');
   }
 }

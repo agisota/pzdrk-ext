@@ -80,7 +80,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     'xaiRealtimeClientSecret': () => handleXaiRealtimeClientSecret(request.ttlSeconds),
     'fetchUrlMeta': () => handleFetchUrlMeta(request.url),
     'sendSlack': () => handleSlackSend(request.data),
-    'getBrowserContext': () => handleGetBrowserContext(request.days),
+    'getBrowserContext': () => handleGetBrowserContext({ days: request.days, hours: request.hours }),
     'getTrackerStats': () => Promise.resolve({ blocked: trackerStats.blocked, domains: Array.from(trackerStats.domains).slice(0, 20) }),
     'resetTrackerStats': () => { trackerStats = { blocked: 0, domains: new Set() }; return Promise.resolve(true); }
   };
@@ -492,7 +492,7 @@ async function handleGroqBatchCall(items, systemPrompt, options = {}) {
   const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokRaw))) : DEFAULT_BATCH_MAX_TOKENS;
 
   const maxParallelRaw = Number(settings.maxParallelRequests);
-  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 6;
+  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 12;
 
   const results = [];
   let cursor = 0;
@@ -680,9 +680,17 @@ async function handleSlackSend(data) {
 
 // ============ BROWSER CONTEXT ============
 
-async function handleGetBrowserContext(daysParam) {
-  const days = Number.isFinite(Number(daysParam)) ? Math.max(1, Math.min(90, Number(daysParam))) : 30;
-  const startTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+async function handleGetBrowserContext(windowParam = {}) {
+  const raw = (windowParam && typeof windowParam === 'object') ? windowParam : { days: windowParam };
+  const hoursRaw = Number(raw.hours);
+  const hasHours = Number.isFinite(hoursRaw) && hoursRaw > 0;
+  const hours = hasHours ? Math.max(0.25, Math.min(24, hoursRaw)) : null;
+  const days = Number.isFinite(Number(raw.days)) ? Math.max(1 / 24, Math.min(90, Number(raw.days))) : 30;
+  const windowMs = hasHours ? hours * 60 * 60 * 1000 : days * 24 * 60 * 60 * 1000;
+  const startTime = Date.now() - windowMs;
+  const windowLabel = hasHours
+    ? `${Number.isInteger(hours) ? hours : hours.toFixed(2)}h`
+    : `${Number.isInteger(days) ? days : days.toFixed(2)}d`;
 
   const [tabs, historyItems] = await Promise.all([
     chrome.tabs.query({}),
@@ -693,8 +701,12 @@ async function handleGetBrowserContext(daysParam) {
 
   const openTabs = (tabs || [])
     .filter(t => typeof t.url === 'string' && /^https?:\/\//i.test(t.url))
-    .map(t => ({ title: t.title || '', url: t.url, active: !!t.active, pinned: !!t.pinned }))
-    .slice(0, 25);
+    .map(t => {
+      let domain = '';
+      try { domain = new URL(t.url).hostname; } catch (e) { domain = ''; }
+      return { title: t.title || '', url: t.url, active: !!t.active, pinned: !!t.pinned, domain, windowId: t.windowId || 0 };
+    })
+    .slice(0, 40);
 
   const cleanedHistory = (historyItems || [])
     .filter(h => typeof h.url === 'string' && /^https?:\/\//i.test(h.url))
@@ -714,6 +726,32 @@ async function handleGetBrowserContext(daysParam) {
   const topDomains = Array.from(domainAgg.values())
     .sort((a, b) => (b.visits || 0) - (a.visits || 0))
     .slice(0, 12);
+
+  const groupRows = (items, urlKey = 'url') => {
+    const groups = new Map();
+    for (const item of items || []) {
+      let host = item.domain || '';
+      try { if (!host) host = new URL(item[urlKey]).hostname; } catch (e) { continue; }
+      if (!host) continue;
+      const prev = groups.get(host) || { domain: host, count: 0, active: false, pinned: false, pages: [] };
+      prev.count += 1;
+      prev.active = prev.active || !!item.active;
+      prev.pinned = prev.pinned || !!item.pinned;
+      if (prev.pages.length < 6) {
+        prev.pages.push({
+          title: item.title || '',
+          url: item[urlKey] || '',
+          lastVisitTime: item.lastVisitTime || item.visitTime || 0
+        });
+      }
+      groups.set(host, prev);
+    }
+    return Array.from(groups.values())
+      .sort((a, b) => Number(b.active) - Number(a.active) || (b.count - a.count))
+      .slice(0, 10);
+  };
+
+  const openTabGroups = groupRows(openTabs);
 
   // Recent pages (unique URLs)
   const recentHistory = cleanedHistory
@@ -751,13 +789,30 @@ async function handleGetBrowserContext(daysParam) {
   }
   visitTrail.sort((a, b) => (b.visitTime || 0) - (a.visitTime || 0));
 
+  const workflowGroups = groupRows(
+    openTabs.concat(recentHistory.map(h => ({
+      title: h.title || '',
+      url: h.url,
+      lastVisitTime: h.lastVisitTime || 0,
+      active: false,
+      pinned: false
+    })))
+  ).map(group => ({
+    ...group,
+    signal: group.active ? 'active-tab-cluster' : (group.count >= 3 ? 'repeated-domain' : 'recent-context')
+  }));
+
   return {
-    windowDays: days,
+    windowDays: hasHours ? null : days,
+    windowHours: hasHours ? hours : null,
+    windowLabel,
     generatedAt: Date.now(),
     openTabs,
+    openTabGroups,
     topDomains,
     recentHistory,
-    visitTrail: visitTrail.slice(0, 60)
+    visitTrail: visitTrail.slice(0, 60),
+    workflowGroups
   };
 }
 

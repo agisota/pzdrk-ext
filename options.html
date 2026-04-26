@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>✦ pzdrk — Настройки</title>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-0: #04101a;
@@ -25,7 +25,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Space Grotesk', -apple-system, sans-serif;
+      font-family: 'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       font-size: 13px;
       color: var(--text);
       min-height: 100vh;
@@ -321,7 +321,7 @@
       border: none;
       border-radius: 14px;
       cursor: pointer;
-      font-family: 'Space Grotesk', sans-serif;
+      font-family: 'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       font-size: 13px;
       font-weight: 700;
       transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
@@ -529,7 +529,7 @@
       <div class="row">
         <div class="row-title">Max parallel requests</div>
         <div class="row-subtitle">Сколько LLM запросов одновременно. Для <code>groq/compound</code> быстрый и обычно стабильный диапазон сейчас 6–8.</div>
-        <input type="text" id="maxParallelRequests" placeholder="8">
+        <input type="text" id="maxParallelRequests" placeholder="12">
         <p class="hint">Разгоняйте постепенно: сначала 6–8. Если видите 429 / TPM-limit / 413, опускайтесь до 4–6.</p>
       </div>
       <div class="row">
