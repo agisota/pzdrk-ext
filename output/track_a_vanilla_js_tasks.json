@@ -1,0 +1,41 @@
+{
+  "track": "A - Vanilla JS Overhaul",
+  "source": ".kiro/specs/pzdrk-v7-overhaul/",
+  "total_tasks": 100,
+  "status": "specification_complete",
+  "tasks": [
+    {
+      "id": "VA-001",
+      "title": "Set up test infrastructure and Chrome API mocks",
+      "category": "infrastructure",
+      "priority": 95,
+      "status": "not_started",
+      "estimated_hours": 4,
+      "dependencies": [],
+      "subtasks": [
+        "Create tests/setup.js with chrome.storage.sync mock",
+        "Mock chrome.runtime.sendMessage",
+        "Mock chrome.history.search and chrome.tabs.query",
+        "Create vitest.config.js for ESM"
+      ],
+      "requirements": ["all (testing infrastructure)"],
+      "quick_win": false
+    },
+    {
+      "id": "VA-002",
+      "title": "Implement Splitter module",
+      "category": "core",
+      "priority": 90,
+      "status": "not_started",
+      "estimated_hours": 6,
+      "dependencies": ["VA-001"],
+      "subtasks": [
+        "Extract Splitter as standalone module",
+        "Implement split() with chunk size control",
+        "Implement estimateTokens()",
+        "Write property test: chunk size invariant",
+        "Write unit tests"
+      ]
+    }
+  ]
+}

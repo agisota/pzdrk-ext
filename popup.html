@@ -2,157 +2,413 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 280px;
-      padding: 14px;
-      font-family: 'Inter', -apple-system, sans-serif;
-      font-size: 11px;
-      background: rgba(13, 13, 18, 0.98);
-      color: #e8e8e8;
+    :root {
+      --bg-0: #04111c;
+      --bg-1: #0b1f31;
+      --card: rgba(8, 18, 28, 0.86);
+      --card-soft: rgba(255,255,255,0.04);
+      --text: #eef7ff;
+      --text-dim: #91abc2;
+      --accent: #7dd3fc;
+      --accent-strong: #38bdf8;
+      --accent-secondary: #bef264;
+      --border: rgba(125, 211, 252, 0.14);
+      --shadow: 0 20px 44px rgba(2, 6, 12, 0.45);
     }
-    .header {
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 344px;
+      padding: 14px;
+      font-family: 'Space Grotesk', -apple-system, sans-serif;
+      font-size: 12px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.22), transparent 35%),
+        radial-gradient(circle at 100% 0%, rgba(190, 242, 100, 0.10), transparent 24%),
+        linear-gradient(150deg, var(--bg-0) 0%, var(--bg-1) 100%);
+    }
+
+    .shell {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .hero,
+    .panel {
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015)),
+        var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .hero {
+      padding: 16px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -40px -60px auto;
+      width: 140px;
+      height: 140px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(125, 211, 252, 0.24), transparent 70%);
+      pointer-events: none;
+    }
+
+    .brand-row {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--accent), #d9f99d);
+      color: #04111c;
+      font-size: 22px;
+      box-shadow: 0 16px 30px rgba(56, 189, 248, 0.22);
+    }
+
+    .brand-copy h1 {
+      font-size: 18px;
+      line-height: 1.05;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    .brand-copy p {
+      margin-top: 4px;
+      color: var(--text-dim);
+      line-height: 1.4;
+      font-size: 11px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       margin-bottom: 12px;
-      padding-bottom: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-dim);
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .chip strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      padding: 10px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.035);
+      border: 1px solid rgba(255,255,255,0.05);
+      min-width: 0;
+    }
+
+    .metric-label {
+      display: block;
+      color: var(--text-dim);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      display: block;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+
+    .mono {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+    }
+
+    .panel {
+      padding: 14px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
-    .header-icon { font-size: 22px; }
-    .header-text h1 { font-size: 14px; font-weight: 600; color: #fff; }
-    .header-text .version { font-size: 9px; color: #555; }
-    
-    .stats {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 12px;
+
+    .toggle-row:last-child { border-bottom: none; }
+
+    .toggle-copy strong {
+      display: block;
+      font-size: 12px;
+      color: #fff;
+      margin-bottom: 3px;
     }
-    .stat {
-      flex: 1;
-      padding: 10px;
-      background: rgba(255,255,255,0.03);
-      border-radius: 8px;
-      text-align: center;
+
+    .toggle-copy span {
+      color: var(--text-dim);
+      line-height: 1.35;
+      font-size: 10px;
     }
-    .stat-value { font-size: 18px; font-weight: 700; }
-    .stat-label { font-size: 8px; color: #666; margin-top: 2px; }
-    .stat-ghost .stat-value { color: #9b59b6; }
-    
-    .toggle-row {
+
+    .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      cursor: pointer;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: background 0.2s ease;
+    }
+
+    .slider:before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      bottom: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #dbeafe;
+      transition: transform 0.2s ease, background 0.2s ease;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    }
+
+    input:checked + .slider {
+      background: rgba(125, 211, 252, 0.24);
+      border-color: rgba(125, 211, 252, 0.18);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+      background: var(--accent);
+    }
+
+    .select-wrap {
+      display: grid;
+      gap: 8px;
+    }
+
+    .select-wrap label {
+      color: var(--text-dim);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    select {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      background: rgba(2, 10, 18, 0.54);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      outline: none;
+    }
+
+    .action-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .action {
+      width: 100%;
+      padding: 12px 13px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .action:hover {
+      transform: translateY(-1px);
+      border-color: rgba(125, 211, 252, 0.20);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .action strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .action span {
+      display: block;
+      color: var(--text-dim);
+      line-height: 1.35;
+      font-size: 10px;
+    }
+
+    .action-primary {
+      background: linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(190, 242, 100, 0.10));
+      border-color: rgba(125, 211, 252, 0.20);
+    }
+
+    .footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.03);
+      gap: 12px;
+      padding: 0 4px;
     }
-    .toggle-row:last-of-type { border-bottom: none; }
-    .toggle-row span { font-size: 11px; }
-    .toggle { position: relative; width: 36px; height: 20px; }
-    .toggle input { opacity: 0; width: 0; height: 0; }
-    .slider {
-      position: absolute; cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: #2d2d3d; border-radius: 20px; transition: 0.2s;
+
+    .footer-note {
+      color: var(--text-dim);
+      font-size: 10px;
+      line-height: 1.35;
     }
-    .slider:before {
-      position: absolute; content: "";
-      height: 14px; width: 14px; left: 3px; bottom: 3px;
-      background: #555; border-radius: 50%; transition: 0.2s;
-    }
-    input:checked + .slider { background: rgba(0, 217, 255, 0.3); }
-    input:checked + .slider:before { transform: translateX(16px); background: #00d9ff; }
-    
-    .btn {
-      width: 100%;
-      padding: 10px;
-      margin-top: 10px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      transition: all 0.15s;
-    }
-    .btn-primary {
-      background: #00d9ff;
-      color: #0d0d12;
-    }
-    .btn-primary:hover { background: #00c4e6; }
-    .btn-secondary {
-      background: rgba(255,255,255,0.05);
-      color: #e8e8e8;
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.08); }
-    .btn-ghost {
-      background: rgba(155, 89, 182, 0.1);
-      color: #9b59b6;
-      border: 1px solid rgba(155, 89, 182, 0.2);
-    }
-    .btn-ghost:hover { background: rgba(155, 89, 182, 0.2); }
-    
-    .footer {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255,255,255,0.05);
-      text-align: center;
-    }
+
     .footer a {
-      color: #555;
+      color: var(--accent);
       text-decoration: none;
-      font-size: 9px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
     }
-    .footer a:hover { color: #00d9ff; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <span class="header-icon">✦</span>
-    <div class="header-text">
-      <h1>pzdrk</h1>
-      <div class="version">v6.4.0</div>
+  <div class="shell">
+    <section class="hero">
+      <div class="brand-row">
+        <span class="brand-mark">✦</span>
+        <div class="brand-copy">
+          <h1>pzdrk</h1>
+          <p>Groq compound runtime with richer operator summaries and faster action rail.</p>
+        </div>
+      </div>
+
+      <div class="chip-row">
+        <span class="chip">provider <strong id="activeProvider">groq</strong></span>
+        <span class="chip">keys <strong id="keyState">local pool</strong></span>
+      </div>
+
+      <div class="hero-grid">
+        <div class="metric">
+          <span class="metric-label">model</span>
+          <span class="metric-value mono" id="activeModel">groq/compound</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">output</span>
+          <span class="metric-value mono" id="activeTokens">8192</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">trackers</span>
+          <span class="metric-value" id="trackersBlocked">0</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Runtime</div>
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <strong>Авто-анализ</strong>
+          <span>Запускает expanded summary при загрузке страницы.</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="autoSummarize" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <strong>Privacy Protection</strong>
+          <span>Блокировка трекеров и шумовых сетей на странице.</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="privacyEnabled" checked><span class="slider"></span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Translate</div>
+      <div class="select-wrap">
+        <label for="translateLang">Target language</label>
+        <select id="translateLang">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="zh">中文</option>
+          <option value="ja">日本語</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="panel action-grid">
+      <button class="action action-primary" id="summarizeBtn">
+        <strong>Full Summary</strong>
+        <span>Расширенный operator-grade разбор страницы.</span>
+      </button>
+      <button class="action" id="translateBtn">
+        <strong>Translate Page</strong>
+        <span>Полный перевод текущей страницы с сохранением структуры.</span>
+      </button>
+      <button class="action" id="mindmapBtn">
+        <strong>Generate Mindmap</strong>
+        <span>Собирает карту идей, сущностей и follow-up направлений.</span>
+      </button>
+    </section>
+
+    <div class="footer">
+      <div class="footer-note">Active stack: Groq compound + local BYOK overrides.</div>
+      <a href="#" id="openOptions">Настройки</a>
     </div>
-  </div>
-  
-  <div class="stats">
-    <div class="stat stat-ghost">
-      <div class="stat-value" id="trackersBlocked">0</div>
-      <div class="stat-label">👻 Trackers blocked</div>
-    </div>
-  </div>
-  
-  <div class="toggle-row">
-    <span>🧠 Авто-анализ</span>
-    <label class="toggle"><input type="checkbox" id="autoSummarize" checked><span class="slider"></span></label>
-  </div>
-  
-  <div class="toggle-row">
-    <span>👻 Privacy Protection</span>
-    <label class="toggle"><input type="checkbox" id="privacyEnabled" checked><span class="slider"></span></label>
-  </div>
-  
-  <div style="margin-top: 10px;">
-    <label style="font-size: 11px; color: #999; margin-bottom: 6px; display: block;">🌐 Translate to:</label>
-    <select id="translateLang" style="width: 100%; padding: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #e8e8e8; font-size: 11px; margin-bottom: 8px;">
-      <option value="ru">🇷🇺 Русский</option>
-      <option value="en">🇬🇧 English</option>
-      <option value="de">🇩🇪 Deutsch</option>
-      <option value="fr">🇫🇷 Français</option>
-      <option value="es">🇪🇸 Español</option>
-      <option value="zh">🇨🇳 中文</option>
-      <option value="ja">🇯🇵 日本語</option>
-    </select>
-  </div>
-  <button class="btn btn-primary" id="summarizeBtn">✦ Summarize Now</button>
-  <button class="btn btn-secondary" id="translateBtn">🌐 Translate Page</button>
-  <button class="btn btn-ghost" id="mindmapBtn">🗺️ Generate Mindmap</button>
-  
-  <div class="footer">
-    <a href="#" id="openOptions">⚙️ Настройки</a>
   </div>
 
   <script src="popup.js"></script>

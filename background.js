@@ -1,10 +1,20 @@
 // ============ @pzdrk v6.3 Background Service Worker ============
 
-// Defaults (built-in). BYOK via Options can override.
-const DEFAULT_GROQ_KEY = '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';
+// Defaults (built-in). BYOK/local overrides can extend these.
 const DEFAULT_EXA_KEY = 'bebe84f2-7740-4b67-b9d6-91edbecb080f';
 const XAI_VOICE_KEY = 'xai-GIuMtBSOO3KnHNYgmd69NFdzLIDCuo6ZjJ23q3Sbe3fjEtbHLte15KHNaB27k88O5E4v7k3CPSckQMxf';
 const SLACK_WEBHOOK = 'https://hooks.slack.com/triggers/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';
+const LOCAL_OVERRIDES_FILE = 'local-overrides.json';
+const DEFAULT_GROQ_MODEL = 'groq/compound';
+const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b';
+const MAX_OUTPUT_TOKENS = 8192;
+const DEFAULT_REQUEST_MAX_TOKENS = 1800;
+const DEFAULT_BATCH_MAX_TOKENS = 1800;
+const TRANSIENT_KEY_COOLDOWN_MS = 1500;
+const GENERIC_REQUEST_COOLDOWN_MS = 20_000;
+const AUTH_KEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const BROKEN_KEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const MAX_KEY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 // LLM Providers
 const GROQ_CHAT_COMPLETIONS_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -19,6 +29,7 @@ const TRACKER_RULESET_ID = 'pzdrk_blocklist';
 
 // Tracker stats
 let trackerStats = { blocked: 0, domains: new Set() };
+let localOverridesPromise = null;
 
 async function syncPrivacyRuleset() {
   try {
@@ -43,9 +54,9 @@ syncPrivacyRuleset();
 
 chrome.declarativeNetRequest.onRuleMatchedDebug?.addListener((info) => {
   trackerStats.blocked++;
-  try { trackerStats.domains.add(new URL(info.request.url).hostname); } catch (e) {}
+  try { trackerStats.domains.add(new URL(info.request.url).hostname); } catch (e) { }
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs[0]?.id) chrome.tabs.sendMessage(tabs[0].id, { action: 'trackerBlocked' }).catch(() => {});
+    if (tabs[0]?.id) chrome.tabs.sendMessage(tabs[0].id, { action: 'trackerBlocked' }).catch(() => { });
   });
 });
 
@@ -59,29 +70,29 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (actions[info.menuItemId]) chrome.tabs.sendMessage(tab.id, { action: actions[info.menuItemId], text: info.selectionText });
 });
 
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    const handlers = {
-      'callGroq': () => handleGroqCall(request.prompt, request.systemPrompt, request.options),
-      'callGroqBatch': () => handleGroqBatchCall(request.items, request.systemPrompt, request.options),
-      'searchExa': () => handleExaSearch(request.query),
-      'transcribeAudio': () => handleWhisperTranscription(request.audioBlob),
-      'speakGrok': () => handleGrokVoice(request.text),
-      'xaiRealtimeClientSecret': () => handleXaiRealtimeClientSecret(request.ttlSeconds),
-      'fetchUrlMeta': () => handleFetchUrlMeta(request.url),
-      'sendSlack': () => handleSlackSend(request.data),
-      'getBrowserContext': () => handleGetBrowserContext(request.days),
-      'getTrackerStats': () => Promise.resolve({ blocked: trackerStats.blocked, domains: Array.from(trackerStats.domains).slice(0, 20) }),
-      'resetTrackerStats': () => { trackerStats = { blocked: 0, domains: new Set() }; return Promise.resolve(true); }
-    };
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const handlers = {
+    'callGroq': () => handleGroqCall(request.prompt, request.systemPrompt, request.options),
+    'callGroqBatch': () => handleGroqBatchCall(request.items, request.systemPrompt, request.options),
+    'searchExa': () => handleExaSearch(request.query),
+    'transcribeAudio': () => handleWhisperTranscription(request.audioBlob),
+    'speakGrok': () => handleGrokVoice(request.text),
+    'xaiRealtimeClientSecret': () => handleXaiRealtimeClientSecret(request.ttlSeconds),
+    'fetchUrlMeta': () => handleFetchUrlMeta(request.url),
+    'sendSlack': () => handleSlackSend(request.data),
+    'getBrowserContext': () => handleGetBrowserContext(request.days),
+    'getTrackerStats': () => Promise.resolve({ blocked: trackerStats.blocked, domains: Array.from(trackerStats.domains).slice(0, 20) }),
+    'resetTrackerStats': () => { trackerStats = { blocked: 0, domains: new Set() }; return Promise.resolve(true); }
+  };
 
-    const handler = handlers[request.action];
-    if (handler) {
-      handler()
-        .then(result => sendResponse({ success: true, data: result }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-  });
+  const handler = handlers[request.action];
+  if (handler) {
+    handler()
+      .then(result => sendResponse({ success: true, data: result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+});
 
 // ============ XAI REALTIME (EPHEMERAL TOKEN) ============
 
@@ -145,6 +156,61 @@ function normalizeKeyList(value) {
     .filter(Boolean);
 }
 
+function dedupeStrings(list) {
+  return Array.from(new Set((Array.isArray(list) ? list : []).map(v => String(v || '').trim()).filter(Boolean)));
+}
+
+async function loadLocalOverrides() {
+  if (!localOverridesPromise) {
+    localOverridesPromise = fetch(chrome.runtime.getURL(LOCAL_OVERRIDES_FILE), { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const parsed = await response.json().catch(() => null);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      })
+      .catch(() => null);
+  }
+
+  return localOverridesPromise;
+}
+
+function applyLocalOverrides(settings, overrides) {
+  if (!overrides || typeof overrides !== 'object') return settings;
+
+  const next = { ...settings };
+
+  const groqApiKeys = dedupeStrings(normalizeKeyList(overrides.groqApiKeys));
+  const cerebrasApiKeys = dedupeStrings(normalizeKeyList(overrides.cerebrasApiKeys));
+
+  if (groqApiKeys.length) next.groqApiKeys = groqApiKeys;
+  if (cerebrasApiKeys.length) next.cerebrasApiKeys = cerebrasApiKeys;
+
+  for (const key of ['coreProvider', 'model', 'modelGroq', 'modelCerebras']) {
+    const value = String(overrides[key] || '').trim();
+    if (value) next[key] = value;
+  }
+
+  for (const key of ['maxParallelRequests', 'targetMaxOutputTokens', 'prefetchDelayMs']) {
+    const value = Number(overrides[key]);
+    if (Number.isFinite(value)) next[key] = value;
+  }
+
+  for (const key of ['byokMode', 'prefetchOnHover', 'mapReduceEnabled', 'twoColumnSummary']) {
+    if (typeof overrides[key] === 'boolean') next[key] = overrides[key];
+  }
+
+  if (groqApiKeys.length || cerebrasApiKeys.length) {
+    next.byokMode = true;
+  }
+
+  return next;
+}
+
+async function getMergedSettings(keys) {
+  const settings = await chrome.storage.sync.get(keys);
+  return applyLocalOverrides(settings, await loadLocalOverrides());
+}
+
 function normalizeProvider(p) {
   const s = String(p || '').trim().toLowerCase();
   if (s === 'cerebras') return 'cerebras';
@@ -163,33 +229,37 @@ function isKnownCerebrasModelId(id) {
   ].includes(s);
 }
 
+function isDeprecatedGroqModelId(id) {
+  return [
+    '',
+    'compound',
+    'moonshotai/kimi-k2-instruct',
+    'moonshotai/kimi-k2-instruct-0905'
+  ].includes(String(id || '').trim());
+}
+
 function getModelForProvider(settings, provider) {
   if (provider === 'cerebras') {
     const explicit = String(settings.modelCerebras || '').trim();
     if (explicit) return explicit;
     const shared = String(settings.model || '').trim();
-    return isKnownCerebrasModelId(shared) ? shared : 'gpt-oss-120b';
+    return isKnownCerebrasModelId(shared) ? shared : DEFAULT_CEREBRAS_MODEL;
   }
   const explicit = String(settings.modelGroq || '').trim();
-  if (explicit) return explicit;
+  if (explicit && !isDeprecatedGroqModelId(explicit)) return explicit;
   const shared = String(settings.model || '').trim();
-  return (!shared || isKnownCerebrasModelId(shared)) ? 'moonshotai/kimi-k2-instruct-0905' : shared;
+  if (!shared || isKnownCerebrasModelId(shared) || isDeprecatedGroqModelId(shared)) {
+    return DEFAULT_GROQ_MODEL;
+  }
+  return shared;
 }
 
 function getKeysForProvider(settings, provider) {
-  const byok = !!settings.byokMode;
   if (provider === 'cerebras') {
-    if (!byok) return [];
-    return normalizeKeyList(settings.cerebrasApiKeys);
+    return dedupeStrings(normalizeKeyList(settings.cerebrasApiKeys));
   }
 
-  // groq
-  if (!byok) {
-    const k = String(DEFAULT_GROQ_KEY || '').trim();
-    return k ? [k] : [];
-  }
-
-  const list = normalizeKeyList(settings.groqApiKeys);
+  const list = dedupeStrings(normalizeKeyList(settings.groqApiKeys));
   if (list.length) return list;
   const legacy = String(settings.groqApiKey || '').trim();
   return legacy ? [legacy] : [];
@@ -254,8 +324,23 @@ function pickNextKey(provider, keys) {
 function markKeyCooldown(provider, key, ms) {
   const state = PROVIDER_STATE[provider] || PROVIDER_STATE.groq;
   if (!key) return;
-  const until = Date.now() + Math.max(0, Math.min(60_000, Math.round(ms || 0)));
+  const until = Date.now() + Math.max(0, Math.min(MAX_KEY_COOLDOWN_MS, Math.round(ms || 0)));
   state.cooldownUntilByKey.set(key, until);
+}
+
+function getErrorMessageText(error) {
+  return String(error?.message || '').trim();
+}
+
+function shouldQuarantineKey(provider, error) {
+  const status = Number(error?.status || 0);
+  const message = getErrorMessageText(error);
+
+  if (status === 401 || status === 403) return true;
+  if (/invalid[_\s-]?api[_\s-]?key|expired[_\s-]?api[_\s-]?key/i.test(message)) return true;
+  if (provider === 'groq' && status === 413 && /\blimit\s*1\b/i.test(message)) return true;
+
+  return false;
 }
 
 async function callChatCompletions(provider, apiKey, payload, timeoutMs = 90000) {
@@ -303,26 +388,40 @@ async function callLLMWithProvider(settings, provider, messages, temperature, ma
     };
 
     if (provider === 'cerebras') {
-      if (Number.isFinite(Number(maxTokens))) payload.max_completion_tokens = Math.max(1, Math.min(8000, Number(maxTokens)));
+      if (Number.isFinite(Number(maxTokens))) payload.max_completion_tokens = Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokens)));
     } else {
-      if (Number.isFinite(Number(maxTokens))) payload.max_tokens = Math.max(1, Math.min(8000, Number(maxTokens)));
+      if (Number.isFinite(Number(maxTokens))) payload.max_tokens = Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokens)));
     }
 
     try {
       return await callChatCompletions(provider, pick.key, payload, timeoutMs);
     } catch (e) {
+      const message = getErrorMessageText(e);
+
       if (e?.status === 429) {
         const retry = Number.isFinite(Number(e.retryAfterMs)) ? Number(e.retryAfterMs) : 1200;
         markKeyCooldown(provider, pick.key, retry);
         continue;
       }
-      if (e?.status === 401 || e?.status === 403) {
-        markKeyCooldown(provider, pick.key, 30_000);
+      if (shouldQuarantineKey(provider, e)) {
+        const quarantineMs = (provider === 'groq' && e?.status === 413 && /\blimit\s*1\b/i.test(message))
+          ? BROKEN_KEY_COOLDOWN_MS
+          : AUTH_KEY_COOLDOWN_MS;
+        markKeyCooldown(provider, pick.key, quarantineMs);
+        continue;
+      }
+      if (e?.status === 413) {
+        markKeyCooldown(provider, pick.key, GENERIC_REQUEST_COOLDOWN_MS);
+        if (keys.length > 1) continue;
+        throw e;
+      }
+      if (e?.status === 408) {
+        markKeyCooldown(provider, pick.key, TRANSIENT_KEY_COOLDOWN_MS);
         continue;
       }
       // Soft cooldown on transient failures
       if (e?.status >= 500 || e?.message === 'Timeout') {
-        markKeyCooldown(provider, pick.key, 1500);
+        markKeyCooldown(provider, pick.key, TRANSIENT_KEY_COOLDOWN_MS);
         continue;
       }
       throw e;
@@ -351,7 +450,7 @@ async function callLLM(settings, messages, temperature, maxTokens) {
 }
 
 async function handleGroqCall(prompt, systemPrompt, options = {}) {
-  const settings = await chrome.storage.sync.get([
+  const settings = await getMergedSettings([
     'byokMode',
     'coreProvider',
     'model', 'modelGroq', 'modelCerebras',
@@ -362,7 +461,7 @@ async function handleGroqCall(prompt, systemPrompt, options = {}) {
   const tempRaw = (options && typeof options === 'object') ? options.temperature : undefined;
   const maxTokRaw = (options && typeof options === 'object') ? (options.max_tokens ?? options.max_completion_tokens) : undefined;
   const temperature = Number.isFinite(Number(tempRaw)) ? Math.max(0, Math.min(1.5, Number(tempRaw))) : 0.7;
-  const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(8000, Number(maxTokRaw))) : 6000;
+  const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokRaw))) : DEFAULT_REQUEST_MAX_TOKENS;
 
   const messages = [
     { role: 'system', content: systemPrompt || '' },
@@ -378,7 +477,7 @@ async function handleGroqBatchCall(items, systemPrompt, options = {}) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return '';
 
-  const settings = await chrome.storage.sync.get([
+  const settings = await getMergedSettings([
     'byokMode',
     'coreProvider',
     'model', 'modelGroq', 'modelCerebras',
@@ -390,10 +489,10 @@ async function handleGroqBatchCall(items, systemPrompt, options = {}) {
   const tempRaw = (options && typeof options === 'object') ? options.temperature : undefined;
   const maxTokRaw = (options && typeof options === 'object') ? (options.max_tokens ?? options.max_completion_tokens) : undefined;
   const temperature = Number.isFinite(Number(tempRaw)) ? Math.max(0, Math.min(1.5, Number(tempRaw))) : 0.2;
-  const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(8000, Number(maxTokRaw))) : 3000;
+  const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokRaw))) : DEFAULT_BATCH_MAX_TOKENS;
 
   const maxParallelRaw = Number(settings.maxParallelRequests);
-  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 12;
+  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 6;
 
   const results = [];
   let cursor = 0;
@@ -439,7 +538,7 @@ async function handleExaSearch(query) {
 // ============ WHISPER TRANSCRIPTION (via Groq) ============
 
 async function handleWhisperTranscription(audioBase64) {
-  const settings = await chrome.storage.sync.get(['byokMode', 'groqApiKey', 'groqApiKeys']);
+  const settings = await getMergedSettings(['byokMode', 'groqApiKey', 'groqApiKeys']);
   const keys = getKeysForProvider(settings, 'groq');
   const apiKey = String(keys[0] || '').trim();
 
@@ -448,7 +547,7 @@ async function handleWhisperTranscription(audioBase64) {
   const binaryString = atob(audioBase64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-  
+
   const audioBlob = new Blob([bytes], { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('file', audioBlob, 'recording.webm');
@@ -575,7 +674,7 @@ async function handleSlackSend(data) {
   } catch (e) {
     // Silent fail - Slack is fire-and-forget
   }
-  
+
   return { success: true };
 }
 

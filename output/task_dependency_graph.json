@@ -1,0 +1,52 @@
+{
+  "graph_metadata": {
+    "generated_at": "2025-02-12T10:30:00Z",
+    "total_nodes": 156,
+    "total_edges": 89,
+    "critical_path_length": 23,
+    "parallel_opportunities": 45
+  },
+  "critical_path": [
+    "DECISION-001",
+    "VA-001 or VB-022",
+    "VA-003 or VB-016",
+    "VA-009 or VB-025",
+    "VA-026 or VB-017",
+    "VA-054 or VB-026"
+  ],
+  "dependency_chains": {
+    "track_a_vanilla": {
+      "chain_1_core_pipeline": [
+        "VA-001 (test setup)",
+        "VA-003 (Splitter)",
+        "VA-006 (RateBudget)",
+        "VA-009 (ProviderRouter)",
+        "VA-012 (checkpoint)"
+      ],
+      "chain_2_ui": [
+        "VA-001 (test setup)",
+        "VA-026 (UnifiedPane)",
+        "VA-029 (SectionManager)",
+        "VA-032 (CommandRail)"
+      ],
+      "chain_3_settings": [
+        "VA-001 (test setup)",
+        "VA-038 (settings layout)",
+        "VA-039-046 (tabs)",
+        "VA-047 (persistence)"
+      ]
+    },
+    "track_b_typescript": {
+      "chain_1_integration": [
+        "VB-022 (background worker)",
+        "VB-025 (content script)",
+        "VB-026 (message passing)"
+      ],
+      "chain_2_ui": [
+        "VB-016 (note system)",
+        "VB-017 (command palette)",
+        "VB-018 (mindmap)"
+      ]
+    }
+  }
+}

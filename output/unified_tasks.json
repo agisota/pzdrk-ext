@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "generated_at": "2025-02-12T10:30:00Z",
+    "total_tasks": 156,
+    "high_priority": 12,
+    "quick_wins": 8,
+    "sources": [
+      ".kiro/specs/pzdrk-v7-overhaul/tasks.md",
+      "REFACTOR-PLAN.md",
+      "IMPLEMENTATION-SUMMARY.md",
+      "src/ implementation status"
+    ],
+    "schema_version": "1.0",
+    "conflict_detected": true,
+    "conflict_description": "Two parallel v7.0 architectures: Vanilla JS (spec) vs TypeScript/Vite (partial impl)"
+  },
+  "architectural_tracks": {
+    "track_a_vanilla_js": {
+      "name": "Vanilla JS Overhaul",
+      "status": "specification_complete",
+      "implementation_status": "not_started",
+      "approach": "ES2022, no build step, test-first",
+      "task_count": 100
+    },
+    "track_b_typescript": {
+      "name": "TypeScript/Vite Refactor",
+      "status": "partially_implemented",
+      "implementation_status": "core_modules_done",
+      "approach": "TypeScript, Vite, modular",
+      "task_count": 56
+    }
+  }
+}
+,
+  "critical_decisions": [
+    {
+      "id": "DECISION-001",
+      "title": "Choose v7.0 Architecture Track",
+      "priority": "CRITICAL",
+      "status": "pending",
+      "description": "Two incompatible v7.0 architectures exist. Must choose: Track A (Vanilla JS, spec-driven) or Track B (TypeScript, partially implemented)",
+      "impact": "All subsequent tasks depend on this decision",
+      "options": [
+        {
+          "name": "Track A: Vanilla JS",
+          "pros": ["Complete spec", "No build complexity", "Test-first approach", "29 property tests defined"],
+          "cons": ["Start from scratch", "No vector DB", "No advanced features"]
+        },
+        {
+          "name": "Track B: TypeScript",
+          "pros": ["Core modules done", "Milvus integration", "Smart routing", "Performance optimized"],
+          "cons": ["UI not started", "No spec alignment", "Build complexity"]
+        },
+        {
+          "name": "Hybrid: Merge approaches",
+          "pros": ["Best of both", "Leverage existing code"],
+          "cons": ["Complex migration", "Requires reconciliation"]
+        }
+      ]
+    }
+  ]
+}

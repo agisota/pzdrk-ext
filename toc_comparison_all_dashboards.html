@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Сравнение Table of Content · dashboard v2 / workflow OS v2 / workflow OS v3</title>
+<style>
+:root {
+  --bg:#0b1020; --surface:#111827; --surface2:#172033; --text:#eef4ff; --text2:#8ea0bd; --border:#233147; --accent:#6ea8ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:linear-gradient(180deg,#0b1020 0%,#0f172a 100%);color:var(--text);line-height:1.55;padding:24px}
+.wrap{max-width:1380px;margin:0 auto;display:grid;gap:16px}
+.hero,.toc-card,.matrix-card,.summary-card{background:rgba(17,24,39,.92);border:1px solid rgba(142,160,189,.16);border-radius:22px;padding:18px;box-shadow:0 16px 40px rgba(2,6,23,.24)}
+.hero h1{font-size:32px;letter-spacing:-.04em;margin-bottom:8px}
+.hero p{color:var(--text2);max-width:86ch}
+.hero .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.pill{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid rgba(142,160,189,.18);background:rgba(23,32,51,.7);font-size:12px;font-weight:700;color:var(--text2)}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card-head h2{font-size:18px;letter-spacing:-.03em}
+.card-head p{font-size:12px;color:var(--text2)}
+.toc-list{display:grid;gap:8px}
+.toc-item{border:1px solid rgba(142,160,189,.14);border-radius:16px;padding:10px 12px;background:rgba(23,32,51,.62)}
+.toc-item strong{display:block;font-size:13px;margin-bottom:4px}
+.toc-item span{display:block;font-size:12px;color:var(--text2)}
+.summary-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+.summary-card h2,.matrix-card h2{font-size:20px;letter-spacing:-.03em;margin-bottom:10px}
+.summary-card p{color:var(--text2);margin-bottom:12px}
+.summary-card ul{padding-left:18px;color:var(--text2);display:grid;gap:8px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:12px 10px;border-top:1px solid rgba(142,160,189,.14);vertical-align:top;text-align:left}
+th{color:var(--text2);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.row-name{font-weight:700;white-space:nowrap}
+.note{color:var(--text2);min-width:280px}
+.status{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;background:color-mix(in srgb, var(--st) 18%, transparent);border:1px solid color-mix(in srgb, var(--st) 36%, transparent);color:var(--st);font-weight:700;font-size:12px}
+.kpi{display:grid;gap:8px}
+.kpi .item{border:1px solid rgba(142,160,189,.14);border-radius:16px;padding:12px;background:rgba(23,32,51,.62)}
+.kpi .item strong{display:block;font-size:24px;letter-spacing:-.04em}
+.kpi .item span{display:block;font-size:12px;color:var(--text2);margin-top:4px}
+@media (max-width:1100px) {
+  .grid3,.summary-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <h1>Сравнение Table of Content всех трёх версий</h1>
+    <p>Здесь не просто side-by-side список разделов, а нормальный crosswalk: что сохранилось напрямую, что было слито, что реально пропало и что пришлось вернуть в refined v3. Потому что «мне кажется, что ты что-то забыл» было, к сожалению, разумным наблюдением.</p>
+    <div class="chips">
+      <span class="pill">Dashboard v2 = reference map</span>
+      <span class="pill">Workflow OS v2 = narrative repackaging</span>
+      <span class="pill">Workflow OS v3 = executive + CJM + surfaces + simulator</span>
+      <span class="pill">Refined v3 = restored dependencies + quality + explicit tools inventory</span>
+    </div>
+  </section>
+
+  <section class="grid3">
+    
+    <section class="toc-card">
+      <div class="card-head">
+        <div>
+          <h2>Dashboard v2</h2>
+          <p>11 top-level разделов</p>
+        </div>
+        <span class="pill">11 sections</span>
+      </div>
+      <div class="toc-list">
+        <div class="toc-item"><strong>1. Обзор</strong><span>Фазы, сводка, маршруты</span></div><div class="toc-item"><strong>2. Дерево решений</strong><span>Выбор маршрута по вопросам</span></div><div class="toc-item"><strong>3. Маршруты</strong><span>Карточки и детали путей</span></div><div class="toc-item"><strong>4. Кубики</strong><span>Фильтры и каталог блоков</span></div><div class="toc-item"><strong>5. Зависимости</strong><span>Граф связей между кубиками</span></div><div class="toc-item"><strong>6. Матрица</strong><span>Покрытие кубиков по маршрутам</span></div><div class="toc-item"><strong>7. Роли</strong><span>Карточки ролей и path роли</span></div><div class="toc-item"><strong>8. Инструменты</strong><span>Каталог цифровых экранов</span></div><div class="toc-item"><strong>9. Примеры</strong><span>Сценарии сборки маршрутов</span></div><div class="toc-item"><strong>10. Контроль качества</strong><span>4 уровня и фабрика данных</span></div><div class="toc-item"><strong>11. Культура и принципы</strong><span>Манифест, критерии, диагностика</span></div>
+      </div>
+    </section>
+    
+    
+    <section class="toc-card">
+      <div class="card-head">
+        <div>
+          <h2>Workflow OS v2</h2>
+          <p>8 top-level разделов</p>
+        </div>
+        <span class="pill">8 sections</span>
+      </div>
+      <div class="toc-list">
+        <div class="toc-item"><strong>1. Обзор</strong><span>Hero, UX-архитектура, системная сводка</span></div><div class="toc-item"><strong>2. Маршруты</strong><span>Помощник выбора, сравнение, матрица</span></div><div class="toc-item"><strong>3. Кубики</strong><span>Фильтры и каталог</span></div><div class="toc-item"><strong>4. Playbook</strong><span>Артефакты, cadence, quality, risks</span></div><div class="toc-item"><strong>5. Роли</strong><span>Heatmap и handoff</span></div><div class="toc-item"><strong>6. Инструменты</strong><span>Стек экранов и тулов</span></div><div class="toc-item"><strong>7. Сценарии</strong><span>Use cases и примеры применения</span></div><div class="toc-item"><strong>8. Принципы</strong><span>Культура, диагностика, словарь</span></div>
+      </div>
+    </section>
+    
+    
+    <section class="toc-card">
+      <div class="card-head">
+        <div>
+          <h2>Workflow OS v3 refined</h2>
+          <p>10 top-level разделов</p>
+        </div>
+        <span class="pill">10 sections</span>
+      </div>
+      <div class="toc-list">
+        <div class="toc-item"><strong>1. Narrative</strong><span>Hero-story, KPI, coverage и next moves</span></div><div class="toc-item"><strong>2. Journeys / CJM</strong><span>Путь тикета, TG, документа, проблемы, агента</span></div><div class="toc-item"><strong>3. Маршруты</strong><span>Decision tree, compare, matrix, dependencies</span></div><div class="toc-item"><strong>4. Кубики</strong><span>Фильтры и каталог</span></div><div class="toc-item"><strong>5. Экраны / контуры</strong><span>Contours, map, tools inventory</span></div><div class="toc-item"><strong>6. Playbook v3</strong><span>Ready/Done, artifacts, RACI, quality, release</span></div><div class="toc-item"><strong>7. Роли</strong><span>Heatmap, handoffs, cards</span></div><div class="toc-item"><strong>8. Simulator</strong><span>Guided mode, quiz, scenarios, maturity</span></div><div class="toc-item"><strong>9. Культура</strong><span>Принципы, диагностика, glossary</span></div><div class="toc-item"><strong>10. Настройки</strong><span>Шрифт, тема, размер, плотность, акцент</span></div>
+      </div>
+    </section>
+    
+  </section>
+
+  <section class="summary-grid">
+    <article class="summary-card">
+      <h2>Что реально было упущено до доработки</h2>
+      <p>Не всё, но несколько вещей действительно растворились при переходе из операционного дашборда в executive-shell.</p>
+      <ul>
+        <li><strong>Dependencies graph</strong> в dashboard v2 был отдельным разделом и давал важную картину связей между кубиками. В workflow OS v2 он исчез, а в исходном workflow OS v3 не был явным TOC-узлом.</li>
+        <li><strong>Quality</strong> в dashboard v2 был отдельным разделом. В OS-версиях он частично спрятался внутри Playbook и перестал читаться как самостоятельный управленческий экран.</li>
+        <li><strong>Tools</strong> в dashboard v2 и workflow OS v2 были видимы как самостоятельный каталог. В v3 это логично переехало в surfaces, но словесно стало менее очевидно.</li>
+        <li><strong>Examples</strong> трансформировались в journeys/scenarios. Это не потеря, а расширение, но без crosswalk выглядело как пропажа.</li>
+      </ul>
+    </article>
+    <aside class="kpi">
+      <div class="item"><strong>11</strong><span>разделов в dashboard v2</span></div>
+      <div class="item"><strong>8</strong><span>разделов в workflow OS v2</span></div>
+      <div class="item"><strong>10</strong><span>разделов в workflow OS v3 refined</span></div>
+      <div class="item"><strong>2</strong><span>реально восстановленных явных узла: Dependencies и Quality</span></div>
+    </aside>
+  </section>
+
+  <section class="matrix-card">
+    <h2>Crosswalk по разделам</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Capability / screen</th>
+            <th>Dashboard v2</th>
+            <th>Workflow OS v2</th>
+            <th>Workflow OS v3 refined</th>
+            <th>Комментарий</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+    <tr>
+      <td class="row-name">Обзор / Narrative</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#60a5fa">Переимен.</span></td>
+      <td class="note">Смысл сохранён, в v3 это narrative shell.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Decision tree</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#60a5fa">Слит</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямой sub</span></td>
+      <td class="note">В v2 OS был внутри Routes, в refined v3 явно указан как subsection.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Routes</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Без потерь.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Dependencies</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#ef4444">Пропал</span></td>
+      <td><span class="status" style="--st:#f59e0b">Возвращён</span></td>
+      <td class="note">Это был реальный пробел. Вернул в v3 явно.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Matrix</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Без потерь.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Kubiks</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Ядро конструктора сохранено.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Tools / Screens</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#f59e0b">Слит + явен</span></td>
+      <td class="note">В v3 это surfaces + explicit inventory.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Quality</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#60a5fa">Слит</span></td>
+      <td><span class="status" style="--st:#f59e0b">Возвращён</span></td>
+      <td class="note">Это был второй реальный пробел. Вернул как quality gates.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Examples / Scenarios</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#a855f7">Расширен</span></td>
+      <td class="note">В v3 расширено до journeys + simulator.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Roles / Handoffs</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#a855f7">Расширен</span></td>
+      <td><span class="status" style="--st:#a855f7">Расширен</span></td>
+      <td class="note">Слой handoff стал сильнее.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Culture / Principles</td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Сохранено.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Playbook</td>
+      <td><span class="status" style="--st:#64748b">Нет</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td><span class="status" style="--st:#a855f7">Расширен</span></td>
+      <td class="note">Новый слой OS-поколения.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Journeys / CJM</td>
+      <td><span class="status" style="--st:#64748b">Нет</span></td>
+      <td><span class="status" style="--st:#64748b">Нет</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Новый слой, которого раньше не было.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Simulator / Onboarding</td>
+      <td><span class="status" style="--st:#64748b">Нет</span></td>
+      <td><span class="status" style="--st:#64748b">Нет</span></td>
+      <td><span class="status" style="--st:#22c55e">Прямо</span></td>
+      <td class="note">Новый слой для guided usage.</td>
+    </tr>
+    
+    <tr>
+      <td class="row-name">Settings</td>
+      <td><span class="status" style="--st:#93c5fd">Новый</span></td>
+      <td><span class="status" style="--st:#93c5fd">Новый</span></td>
+      <td><span class="status" style="--st:#93c5fd">Новый</span></td>
+      <td class="note">Добавлены во все refined версии.</td>
+    </tr>
+    
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+</body>
+</html>

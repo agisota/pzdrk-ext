@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "generated_at": "2025-02-12T10:30:00Z",
+    "total_duplicates": 12,
+    "deduplication_method": "semantic_similarity"
+  },
+  "duplicate_groups": [
+    {
+      "group_id": "DUP-001",
+      "canonical_task": "Smart API Router with key rotation",
+      "duplicates": [
+        {
+          "task_id": "VA-009",
+          "title": "Implement ProviderRouter module",
+          "track": "A",
+          "similarity": 0.85
+        },
+        {
+          "task_id": "VB-003",
+          "title": "Smart API Router with racing execution",
+          "track": "B",
+          "status": "completed"
+        }
+      ],
+      "recommendation": "Use VB-003 (already implemented)"
+    },
+    {
+      "group_id": "DUP-002",
+      "canonical_task": "Key rotation with cooldown management",
+      "duplicates": [
+        {
+          "task_id": "VA-006",
+          "title": "Implement RateBudget module",
+          "track": "A",
+          "similarity": 0.78
+        },
+        {
+          "task_id": "VB-007",
+          "title": "Key Rotation Engine with weighted selection",
+          "track": "B",
+          "status": "completed"
+        }
+      ],
+      "recommendation": "Use VB-007 (already implemented)"
+    },
+    {
+      "group_id": "DUP-003",
+      "canonical_task": "Settings persistence and import/export",
+      "duplicates": [
+        {
+          "task_id": "VA-047",
+          "title": "Implement settings persistence",
+          "track": "A"
+        },
+        {
+          "task_id": "VA-048",
+          "title": "Implement import/export",
+          "track": "A"
+        }
+      ],
+      "recommendation": "Merge into single task"
+    },
+    {
+      "group_id": "DUP-004",
+      "canonical_task": "Test infrastructure setup",
+      "duplicates": [
+        {
+          "task_id": "VA-001",
+          "title": "Set up test infrastructure and Chrome API mocks",
+          "track": "A"
+        },
+        {
+          "task_id": "VB-034",
+          "title": "Unit tests for Smart Router",
+          "track": "B",
+          "similarity": 0.45,
+          "note": "Partial overlap - both need test setup"
+        }
+      ],
+      "recommendation": "VA-001 is more comprehensive"
+    }
+  ],
+  "semantic_clusters": [
+    {
+      "cluster_name": "API Routing & Key Management",
+      "tasks": ["VA-009", "VA-006", "VB-003", "VB-007"],
+      "overlap_percentage": 85,
+      "recommendation": "Track B already has this implemented"
+    },
+    {
+      "cluster_name": "UI Components",
+      "tasks": ["VA-026", "VA-029", "VA-032", "VB-016", "VB-017", "VB-018"],
+      "overlap_percentage": 60,
+      "recommendation": "Both tracks need UI work, but different approaches"
+    },
+    {
+      "cluster_name": "Testing Infrastructure",
+      "tasks": ["VA-001", "VB-034", "VB-035", "VB-036"],
+      "overlap_percentage": 40,
+      "recommendation": "Track A has more comprehensive test plan"
+    }
+  ],
+  "subset_relationships": [
+    {
+      "parent": "VA-009 (ProviderRouter)",
+      "children": [
+        "VA-009.1 (dispatch)",
+        "VA-009.2 (dispatchParallel)",
+        "VA-009.3 (registerProvider)"
+      ],
+      "note": "VB-003 implements all of these"
+    }
+  ]
+}

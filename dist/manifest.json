@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "✦ pzdrk Advanced",
+  "version": "7.0.0",
+  "description": "AI analysis • Vector DB • Multi-Provider • Obsidian Sync",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "contextMenus",
+    "tabs",
+    "history",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "scripting",
+    "alarms",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/main.ts-loader-DmsL2Y0T.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "css": [
+        "src/content/styles/main.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html"
+  },
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/*",
+        "assets/smart-router-JDkFv81c.js",
+        "assets/index-C2liYqEQ.js",
+        "assets/main.ts-i-dpTUs2.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

@@ -1,0 +1,4343 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workflow OS v2 · refined</title>
+  <meta name="description" content="Single-file конструктор маршрутов, кубиков, ролей и playbook для создания дашбордов КЦ." />
+    <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fb;
+      --bg-elevated: rgba(255,255,255,.82);
+      --surface: rgba(255,255,255,.72);
+      --surface-strong: rgba(255,255,255,.92);
+      --surface-muted: rgba(248,250,252,.72);
+      --text: #101828;
+      --text-soft: #344054;
+      --text-muted: #667085;
+      --border: rgba(15,23,42,.08);
+      --border-strong: rgba(15,23,42,.14);
+      --shadow-soft: 0 20px 60px rgba(15, 23, 42, .08), 0 4px 18px rgba(15, 23, 42, .04);
+      --shadow-hover: 0 28px 72px rgba(15, 23, 42, .12), 0 8px 24px rgba(15, 23, 42, .06);
+      --accent: #0a84ff;
+      --accent-soft: rgba(10,132,255,.12);
+      --accent-strong: #0071e3;
+      --success: #30d158;
+      --warning: #ffd60a;
+      --danger: #ff453a;
+      --purple: #bf5af2;
+      --route-fast: #ff453a;
+      --route-golden: #30d158;
+      --route-full: #0a84ff;
+      --route-lite: #ffd60a;
+      --route-evo: #bf5af2;
+      --radius-2xl: 30px;
+      --radius-xl: 24px;
+      --radius-lg: 20px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+      --radius-xs: 10px;
+      --maxw: 1460px;
+      --ease: cubic-bezier(.2,.8,.2,1);
+      --ease-soft: cubic-bezier(.22,1,.36,1);
+      --topbar-h: 74px;
+      --inspector-w: 400px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #090d16;
+        --bg-elevated: rgba(10,15,26,.82);
+        --surface: rgba(16,24,40,.68);
+        --surface-strong: rgba(17,25,40,.9);
+        --surface-muted: rgba(16,24,40,.5);
+        --text: #f2f4f7;
+        --text-soft: #d0d5dd;
+        --text-muted: #98a2b3;
+        --border: rgba(255,255,255,.08);
+        --border-strong: rgba(255,255,255,.14);
+        --shadow-soft: 0 28px 80px rgba(0,0,0,.32), 0 8px 24px rgba(0,0,0,.18);
+        --shadow-hover: 0 32px 90px rgba(0,0,0,.42), 0 12px 28px rgba(0,0,0,.22);
+        --accent-soft: rgba(10,132,255,.18);
+      }
+    }
+
+    body[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f4f6fb;
+      --bg-elevated: rgba(255,255,255,.82);
+      --surface: rgba(255,255,255,.72);
+      --surface-strong: rgba(255,255,255,.92);
+      --surface-muted: rgba(248,250,252,.72);
+      --text: #101828;
+      --text-soft: #344054;
+      --text-muted: #667085;
+      --border: rgba(15,23,42,.08);
+      --border-strong: rgba(15,23,42,.14);
+      --shadow-soft: 0 20px 60px rgba(15, 23, 42, .08), 0 4px 18px rgba(15, 23, 42, .04);
+      --shadow-hover: 0 28px 72px rgba(15, 23, 42, .12), 0 8px 24px rgba(15, 23, 42, .06);
+      --accent-soft: rgba(10,132,255,.12);
+    }
+
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #090d16;
+      --bg-elevated: rgba(10,15,26,.82);
+      --surface: rgba(16,24,40,.68);
+      --surface-strong: rgba(17,25,40,.9);
+      --surface-muted: rgba(16,24,40,.5);
+      --text: #f2f4f7;
+      --text-soft: #d0d5dd;
+      --text-muted: #98a2b3;
+      --border: rgba(255,255,255,.08);
+      --border-strong: rgba(255,255,255,.14);
+      --shadow-soft: 0 28px 80px rgba(0,0,0,.32), 0 8px 24px rgba(0,0,0,.18);
+      --shadow-hover: 0 32px 90px rgba(0,0,0,.42), 0 12px 28px rgba(0,0,0,.22);
+      --accent-soft: rgba(10,132,255,.18);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(10,132,255,.14), transparent 32%),
+        radial-gradient(circle at 90% 18%, rgba(191,90,242,.12), transparent 28%),
+        radial-gradient(circle at 45% 100%, rgba(48,209,88,.1), transparent 30%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background .45s var(--ease), color .35s var(--ease);
+      overflow-x: hidden;
+    }
+
+    body.palette-open, body.inspector-open { overflow: hidden; }
+
+    a, button, input, select, textarea { font: inherit; }
+    button {
+      border: 0;
+      background: none;
+      cursor: pointer;
+      color: inherit;
+    }
+
+    img { max-width: 100%; }
+    ::selection { background: rgba(10,132,255,.18); }
+
+    .ambient {
+      position: fixed;
+      inset: auto;
+      width: 34vw;
+      height: 34vw;
+      filter: blur(70px);
+      border-radius: 999px;
+      opacity: .4;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .ambient.one { top: -8vw; left: -6vw; background: rgba(10,132,255,.14); }
+    .ambient.two { top: 24vh; right: -12vw; background: rgba(191,90,242,.14); }
+    .ambient.three { bottom: -10vw; left: 30vw; background: rgba(48,209,88,.1); }
+
+    .glass {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(26px) saturate(150%);
+      -webkit-backdrop-filter: blur(26px) saturate(150%);
+    }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      width: min(var(--maxw), calc(100vw - 32px));
+      margin: 16px auto 48px;
+      padding-right: calc(var(--inspector-w) + 20px);
+      transition: padding-right .35s var(--ease);
+    }
+
+    .shell.no-inspector {
+      padding-right: 0;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 16px;
+      z-index: 40;
+      min-height: var(--topbar-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 16px;
+      border-radius: 999px;
+      margin-bottom: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,.92), rgba(255,255,255,.2) 42%, transparent 43%),
+        linear-gradient(135deg, rgba(10,132,255,.95), rgba(191,90,242,.88));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 8px 22px rgba(10,132,255,.22);
+      color: #fff;
+      flex: 0 0 auto;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-copy h1 {
+      font-size: 16px;
+      line-height: 1.1;
+      margin: 0 0 4px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+
+    .brand-copy p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nav-scroll {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px;
+      scrollbar-width: none;
+      min-width: 0;
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+    .nav-scroll::-webkit-scrollbar { display: none; }
+
+    .nav-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      white-space: nowrap;
+      transition: transform .28s var(--ease), background .28s var(--ease), color .28s var(--ease), border-color .28s var(--ease), box-shadow .28s var(--ease);
+    }
+    .nav-pill:hover {
+      color: var(--text);
+      transform: translateY(-1px);
+      background: rgba(255,255,255,.14);
+    }
+    .nav-pill.active {
+      background: var(--surface-strong);
+      color: var(--text);
+      border-color: var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 4px 12px rgba(15,23,42,.06);
+    }
+    .nav-pill .nav-index {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(10,132,255,.1);
+      color: var(--accent-strong);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+
+    .toolbar-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 999px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      color: var(--text-soft);
+      transition: transform .25s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+    }
+    .toolbar-btn:hover {
+      transform: translateY(-1px);
+      color: var(--text);
+      border-color: var(--border-strong);
+      box-shadow: var(--shadow-soft);
+    }
+    .toolbar-btn .kbd {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.14);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .main {
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      display: none;
+      gap: 18px;
+    }
+
+    .panel.active {
+      display: grid;
+      animation: panel-in .42s var(--ease-soft);
+    }
+
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero {
+      padding: 30px;
+      border-radius: var(--radius-2xl);
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, .9fr);
+      gap: 22px;
+      overflow: hidden;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.32), transparent 28%),
+        linear-gradient(180deg, rgba(255,255,255,.12), transparent 48%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .hero h2 {
+      margin: 18px 0 12px;
+      font-size: clamp(32px, 4.2vw, 54px);
+      line-height: .98;
+      letter-spacing: -.05em;
+      max-width: 12ch;
+    }
+
+    .hero p.lead {
+      margin: 0 0 18px;
+      color: var(--text-soft);
+      font-size: 17px;
+      line-height: 1.6;
+      max-width: 62ch;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .button-primary,
+    .button-secondary,
+    .mini-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border-radius: 999px;
+      transition: transform .25s var(--ease), box-shadow .25s var(--ease), background .25s var(--ease), border-color .25s var(--ease), color .25s var(--ease);
+    }
+
+    .button-primary {
+      min-height: 48px;
+      padding: 0 18px;
+      background: linear-gradient(180deg, rgba(10,132,255,1), rgba(0,113,227,1));
+      color: #fff;
+      box-shadow: 0 14px 34px rgba(10,132,255,.25), inset 0 1px 0 rgba(255,255,255,.28);
+    }
+    .button-primary:hover { transform: translateY(-1px); box-shadow: 0 18px 38px rgba(10,132,255,.28), inset 0 1px 0 rgba(255,255,255,.28); }
+
+    .button-secondary {
+      min-height: 48px;
+      padding: 0 18px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      color: var(--text);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+    }
+    .button-secondary:hover { transform: translateY(-1px); box-shadow: var(--shadow-soft); }
+
+    .hero-side {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat-card {
+      padding: 18px;
+      border-radius: var(--radius-xl);
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+      min-height: 112px;
+    }
+
+    .stat-card strong {
+      display: block;
+      font-size: clamp(24px, 3vw, 34px);
+      letter-spacing: -.04em;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .stat-card span {
+      display: block;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .spotlight-card {
+      padding: 18px 18px 16px;
+      border-radius: var(--radius-xl);
+      background: linear-gradient(180deg, rgba(255,255,255,.12), transparent), var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+    }
+
+    .spotlight-card h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+    .spotlight-card p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .chip-row, .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill, .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.08);
+      color: var(--text-soft);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+    }
+
+    .pill.route-fast { color: var(--route-fast); border-color: color-mix(in srgb, var(--route-fast) 30%, var(--border)); background: color-mix(in srgb, var(--route-fast) 12%, transparent); }
+    .pill.route-golden { color: var(--route-golden); border-color: color-mix(in srgb, var(--route-golden) 30%, var(--border)); background: color-mix(in srgb, var(--route-golden) 12%, transparent); }
+    .pill.route-full { color: var(--route-full); border-color: color-mix(in srgb, var(--route-full) 30%, var(--border)); background: color-mix(in srgb, var(--route-full) 12%, transparent); }
+    .pill.route-lite { color: #9f7f00; border-color: color-mix(in srgb, var(--route-lite) 40%, var(--border)); background: color-mix(in srgb, var(--route-lite) 18%, transparent); }
+    .pill.route-evo { color: var(--route-evo); border-color: color-mix(in srgb, var(--route-evo) 30%, var(--border)); background: color-mix(in srgb, var(--route-evo) 12%, transparent); }
+
+    .section-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .grid-2, .grid-3, .grid-4 {
+      display: grid;
+      gap: 18px;
+    }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .section-card {
+      padding: 24px;
+      border-radius: var(--radius-2xl);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .section-head h3 {
+      margin: 0;
+      font-size: clamp(22px, 2vw, 30px);
+      letter-spacing: -.04em;
+      line-height: 1.04;
+    }
+
+    .section-head p {
+      margin: 8px 0 0;
+      color: var(--text-soft);
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 72ch;
+    }
+
+    .kpi-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .kpi-chip {
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 16px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-soft);
+    }
+
+    .kpi-chip strong {
+      color: var(--text);
+      font-size: 18px;
+      letter-spacing: -.03em;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+
+    .mini-card, .check-card {
+      padding: 18px;
+      border-radius: var(--radius-xl);
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .mini-card strong, .check-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .mini-card p, .check-card p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .mini-card.danger { border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); background: color-mix(in srgb, var(--danger) 10%, var(--surface-strong)); }
+
+    .callout {
+      padding: 18px 20px;
+      border-radius: var(--radius-xl);
+      background: linear-gradient(180deg, rgba(10,132,255,.08), rgba(10,132,255,.02));
+      border: 1px solid rgba(10,132,255,.18);
+      color: var(--text-soft);
+      line-height: 1.6;
+    }
+
+    .ascii-block {
+      margin: 0;
+      padding: 18px 20px;
+      border-radius: var(--radius-xl);
+      background: color-mix(in srgb, var(--surface-strong) 90%, rgba(10,132,255,.08));
+      border: 1px solid var(--border);
+      color: var(--text-soft);
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .plain-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-soft);
+      line-height: 1.65;
+    }
+    .plain-list li + li { margin-top: 6px; }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .route-card {
+      position: relative;
+      padding: 22px 20px;
+      border-radius: 24px;
+      overflow: hidden;
+      display: grid;
+      gap: 14px;
+      transition: transform .32s var(--ease-soft), box-shadow .32s var(--ease-soft), border-color .32s var(--ease-soft), background .32s var(--ease-soft);
+    }
+    .route-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--route-accent) 26%, transparent), transparent 42%),
+        linear-gradient(180deg, rgba(255,255,255,.16), transparent 42%);
+      pointer-events: none;
+      opacity: .9;
+    }
+    .route-card:hover {
+      transform: translateY(-6px) scale(1.01);
+      box-shadow: var(--shadow-hover);
+      border-color: color-mix(in srgb, var(--route-accent) 28%, var(--border));
+    }
+    .route-card.active {
+      border-color: color-mix(in srgb, var(--route-accent) 46%, var(--border));
+      box-shadow: 0 24px 62px color-mix(in srgb, var(--route-accent) 16%, transparent), inset 0 1px 0 rgba(255,255,255,.2);
+    }
+    .route-card .route-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .route-card .route-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.06;
+      letter-spacing: -.03em;
+    }
+    .route-card .route-subtitle {
+      margin: 8px 0 0;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .route-card .route-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .route-card .route-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--route-accent) 16%, transparent);
+      color: var(--route-accent);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      border: 1px solid color-mix(in srgb, var(--route-accent) 20%, var(--border));
+    }
+    .route-card .route-cta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .mini-btn {
+      min-height: 38px;
+      padding: 0 14px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+      color: var(--text);
+    }
+    .mini-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-soft);
+    }
+    .mini-btn.ghost {
+      background: transparent;
+      color: var(--text-soft);
+    }
+
+    .decision-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+      gap: 18px;
+    }
+
+    .decision-card {
+      padding: 24px;
+      border-radius: var(--radius-2xl);
+      display: grid;
+      gap: 16px;
+    }
+
+    .decision-steps {
+      display: grid;
+      gap: 12px;
+    }
+
+    .decision-step {
+      padding: 16px;
+      border-radius: 20px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+      display: grid;
+      gap: 12px;
+    }
+
+    .decision-step-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .step-index {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .decision-step strong { font-size: 15px; }
+    .decision-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .decision-option {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color: var(--text-soft);
+      transition: transform .2s var(--ease), background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease);
+    }
+    .decision-option:hover {
+      transform: translateY(-1px);
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .decision-option.active {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      border-color: rgba(10,132,255,.24);
+    }
+
+    .decision-result {
+      position: sticky;
+      top: calc(var(--topbar-h) + 34px);
+      padding: 24px;
+      border-radius: var(--radius-2xl);
+      min-height: 100%;
+      display: grid;
+      align-content: start;
+      gap: 16px;
+    }
+
+    .decision-preview {
+      padding: 18px;
+      border-radius: 24px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+    }
+
+    .decision-preview h4 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      letter-spacing: -.04em;
+    }
+    .decision-preview p {
+      margin: 0;
+      color: var(--text-soft);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field, .select {
+      min-height: 46px;
+      padding: 0 16px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--surface-strong);
+      color: var(--text);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+      outline: none;
+      transition: border-color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease);
+    }
+    .field:focus, .select:focus {
+      border-color: rgba(10,132,255,.32);
+      box-shadow: 0 0 0 6px var(--accent-soft);
+    }
+    .field {
+      min-width: min(360px, 100%);
+      flex: 1 1 280px;
+    }
+
+    .route-filter-chip, .tool-filter-chip {
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.08);
+      color: var(--text-soft);
+      transition: transform .2s var(--ease), background .2s var(--ease), border-color .2s var(--ease);
+    }
+    .route-filter-chip.active, .tool-filter-chip.active {
+      background: var(--surface-strong);
+      border-color: var(--border-strong);
+      color: var(--text);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+    }
+
+    .phase-group {
+      display: grid;
+      gap: 14px;
+    }
+
+    .phase-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      position: sticky;
+      top: calc(var(--topbar-h) + 28px);
+      z-index: 5;
+    }
+
+    .phase-banner strong { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .phase-banner span { color: var(--text-muted); font-size: 12px; }
+
+    .kubik-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .kubik-card {
+      padding: 18px;
+      border-radius: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      transition: transform .28s var(--ease-soft), box-shadow .28s var(--ease-soft), border-color .28s var(--ease-soft);
+      display: grid;
+      gap: 14px;
+    }
+    .kubik-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--shadow-hover);
+      border-color: rgba(10,132,255,.18);
+    }
+    .kubik-card h4 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: -.03em;
+    }
+    .kubik-card p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .meta-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .meta-chip {
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
+    .route-mini-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border-radius: 24px;
+      border: 1px solid var(--border);
+      background: var(--surface-strong);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+    }
+
+    .soft-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .soft-table th, .soft-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+    .soft-table th {
+      color: var(--text-muted);
+      font-weight: 700;
+      background: color-mix(in srgb, var(--surface-strong) 88%, rgba(10,132,255,.08));
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .soft-table tr:last-child td { border-bottom: 0; }
+
+    .playbook-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .playbook-tab {
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.08);
+      color: var(--text-soft);
+      transition: transform .22s var(--ease), background .22s var(--ease), border-color .22s var(--ease), color .22s var(--ease);
+    }
+    .playbook-tab.active {
+      background: var(--surface-strong);
+      color: var(--text);
+      border-color: rgba(10,132,255,.22);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+    }
+    .playbook-swap {
+      border-radius: 28px;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      view-transition-name: playbook-swap;
+      min-height: 320px;
+    }
+
+    .fragment-stack { display: grid; gap: 16px; }
+    .fragment-hero h3 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: -.04em;
+    }
+    .fragment-hero p {
+      margin: 0;
+      color: var(--text-soft);
+      line-height: 1.6;
+      max-width: 72ch;
+    }
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+
+    .role-heatmap {
+      display: grid;
+      gap: 10px;
+    }
+
+    .heat-row {
+      display: grid;
+      grid-template-columns: 90px minmax(0,1fr) 44px;
+      gap: 12px;
+      align-items: center;
+    }
+    .heat-label { font-size: 12px; font-weight: 700; color: var(--text-soft); }
+    .heat-track {
+      position: relative;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .heat-bar {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: var(--value);
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(10,132,255,.7), rgba(191,90,242,.8));
+    }
+    .heat-value {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: right;
+    }
+
+    .role-grid, .tool-grid, .scenario-grid {
+      display: grid;
+      gap: 14px;
+    }
+    .role-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .tool-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .scenario-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+
+    .role-card, .tool-card, .scenario-card, .principle-card {
+      padding: 20px;
+      border-radius: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      gap: 12px;
+      transition: transform .28s var(--ease-soft), box-shadow .28s var(--ease-soft), border-color .28s var(--ease-soft);
+    }
+    .role-card:hover, .tool-card:hover, .scenario-card:hover, .principle-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--shadow-hover);
+      border-color: rgba(10,132,255,.16);
+    }
+
+    .role-card .role-code {
+      width: fit-content;
+      min-height: 30px;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+    .role-card h4, .tool-card h4, .scenario-card h4, .principle-card h4 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: -.03em;
+    }
+    .role-card p, .tool-card p, .scenario-card p, .principle-card p {
+      margin: 0;
+      color: var(--text-soft);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .scenario-card .scenario-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .principles-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+
+    .glossary-table td:first-child {
+      width: 180px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .inspector {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      bottom: 16px;
+      width: min(calc(100vw - 32px), var(--inspector-w));
+      border-radius: 30px;
+      transform: translateX(calc(100% + 24px));
+      opacity: 0;
+      pointer-events: none;
+      transition: transform .36s var(--ease-soft), opacity .36s var(--ease-soft);
+      z-index: 60;
+      overflow: hidden;
+    }
+
+    .inspector.open {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .inspector-inner {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .inspector-head {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,.1), transparent);
+    }
+    .inspector-head strong {
+      display: block;
+      font-size: 16px;
+      letter-spacing: -.03em;
+      margin-bottom: 4px;
+    }
+    .inspector-head span { color: var(--text-muted); font-size: 12px; }
+
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      background: var(--surface-strong);
+    }
+
+    .inspector-body {
+      overflow: auto;
+      min-height: 0;
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .inspector-block {
+      padding: 18px;
+      border-radius: 22px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+      display: grid;
+      gap: 12px;
+    }
+
+    .inspector-block h3 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -.04em;
+      line-height: 1.08;
+    }
+    .inspector-block p {
+      margin: 0;
+      color: var(--text-soft);
+      line-height: 1.6;
+    }
+    .inspector-block ul, .inspector-block ol {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-soft);
+      line-height: 1.65;
+    }
+    .inspector-block li + li { margin-top: 6px; }
+
+    .inspector-kpis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .inspector-kpis .metric {
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-soft);
+    }
+    .inspector-kpis .metric strong { color: var(--text); font-size: 14px; }
+
+    .pipeline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pipeline .node {
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.08);
+      display: inline-flex;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+
+    .empty-state {
+      min-height: 280px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--text-muted);
+      padding: 28px;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5,10,18,.24);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s var(--ease);
+      z-index: 70;
+    }
+    .overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .palette {
+      width: min(880px, calc(100vw - 28px));
+      margin: 8vh auto 0;
+      border-radius: 30px;
+      overflow: hidden;
+    }
+
+    .palette-head {
+      padding: 18px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      gap: 12px;
+    }
+
+    .palette-input {
+      width: 100%;
+      min-height: 54px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--surface-strong);
+      padding: 0 18px;
+      outline: none;
+      color: var(--text);
+      font-size: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+    }
+    .palette-input:focus {
+      border-color: rgba(10,132,255,.3);
+      box-shadow: 0 0 0 6px var(--accent-soft);
+    }
+
+    .palette-results {
+      max-height: min(64vh, 640px);
+      overflow: auto;
+      display: grid;
+      padding: 10px;
+      gap: 8px;
+    }
+
+    .palette-item {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,.04);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      transition: background .2s var(--ease), border-color .2s var(--ease), transform .2s var(--ease);
+    }
+    .palette-item:hover, .palette-item.active {
+      background: var(--surface-strong);
+      border-color: var(--border);
+      transform: translateY(-1px);
+    }
+    .palette-item small {
+      display: block;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: 800;
+    }
+    .palette-item strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.15;
+      letter-spacing: -.02em;
+      margin-bottom: 4px;
+    }
+    .palette-item span {
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%) translateY(18px);
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .24s var(--ease), transform .24s var(--ease);
+      z-index: 80;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    [data-reveal] { will-change: transform, opacity, filter; }
+
+    :focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 6px var(--accent-soft);
+    }
+
+    @media (max-width: 1280px) {
+      .shell { padding-right: 0; }
+      .route-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .kubik-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .role-grid, .tool-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+
+    @media (max-width: 1080px) {
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        border-radius: 28px;
+        padding: 14px;
+      }
+      .nav-scroll { justify-content: flex-start; }
+      .hero, .decision-wrap, .grid-2, .scenario-grid, .principles-grid, .mini-grid, .check-grid { grid-template-columns: 1fr; }
+      .route-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      body { background-attachment: scroll; }
+      .shell { width: calc(100vw - 20px); margin: 10px auto 32px; }
+      .topbar { top: 10px; gap: 12px; }
+      .hero, .section-card, .decision-card, .playbook-swap { padding: 20px; }
+      .route-grid, .kubik-grid, .role-grid, .tool-grid, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      .stat-grid { grid-template-columns: 1fr 1fr; }
+      .phase-banner { position: static; }
+      .inspector {
+        top: auto;
+        right: 10px;
+        left: 10px;
+        bottom: 10px;
+        width: auto;
+        border-radius: 28px;
+        transform: translateY(calc(100% + 20px));
+      }
+      .inspector.open { transform: translateY(0); }
+      .toolbar { width: 100%; justify-content: space-between; }
+      .toolbar-btn { flex: 1 1 auto; justify-content: center; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    @supports (view-transition-name: root) {
+      ::view-transition-old(playbook-swap),
+      ::view-transition-new(playbook-swap) {
+        animation-duration: .3s;
+        animation-timing-function: var(--ease-soft);
+      }
+    }
+  </style>
+
+<style id="refx-style">
+:root{
+  --refx-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --refx-font-scale:.96;
+  --refx-density:.90;
+  --refx-radius:14px;
+  --refx-shadow:0 14px 34px rgba(2,6,23,.16);
+  --refx-panel-max:1280px;
+  --refx-accent:#6ea8ff;
+}
+html{scroll-behavior:smooth}
+body.refined-ui{
+  font-family:var(--refx-font-family)!important;
+  font-size:calc(15px * var(--refx-font-scale));
+  letter-spacing:-.01em;
+}
+body.refined-ui .topbar{
+  height:48px!important;
+  min-height:48px!important;
+  padding:0 14px!important;
+  gap:10px!important;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  background:color-mix(in srgb, var(--surface, #111827) 84%, transparent)!important;
+  border-bottom:1px solid color-mix(in srgb, var(--border, #334155) 72%, transparent)!important;
+  box-shadow:0 10px 30px rgba(2,6,23,.08);
+}
+body.refined-ui .topbar h1,
+body.refined-ui .topbar .brand,
+body.refined-ui .topbar strong{font-size:14px!important;letter-spacing:-.02em}
+body.refined-ui .sidebar{
+  top:48px!important;
+  width:236px!important;
+  background:color-mix(in srgb, var(--surface, #111827) 88%, transparent)!important;
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border-right:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent)!important;
+}
+body.refined-ui .main{margin-top:48px!important}
+body.refined-ui .main.expanded{margin-left:0!important}
+body.refined-ui .panel{
+  max-width:var(--refx-panel-max)!important;
+  padding:calc(18px * var(--refx-density)) calc(20px * var(--refx-density))!important;
+}
+body.refined-ui .section-title,
+body.refined-ui h1,
+body.refined-ui h2{
+  letter-spacing:-.03em;
+}
+body.refined-ui .section-title{font-size:clamp(20px,2vw,28px)!important;margin-bottom:6px!important}
+body.refined-ui .subtitle{font-size:13px!important;margin-bottom:16px!important;max-width:90ch}
+body.refined-ui .card,
+body.refined-ui .route-card,
+body.refined-ui .role-card,
+body.refined-ui .tool-card,
+body.refined-ui .stat-card,
+body.refined-ui .dt-step,
+body.refined-ui .decision-card,
+body.refined-ui .decision-result,
+body.refined-ui .section-card,
+body.refined-ui .hero,
+body.refined-ui .spotlight-card,
+body.refined-ui .mini-card,
+body.refined-ui .tile,
+body.refined-ui .callout,
+body.refined-ui .quality-level,
+body.refined-ui .principle-card,
+body.refined-ui .example-card,
+body.refined-ui .modal,
+body.refined-ui .inspector,
+body.refined-ui .palette,
+body.refined-ui .welcome,
+body.refined-ui .demo{
+  border-radius:var(--refx-radius)!important;
+  padding:calc(15px * var(--refx-density))!important;
+  border:1px solid color-mix(in srgb, var(--border, #334155) 72%, transparent)!important;
+  box-shadow:var(--refx-shadow)!important;
+  background:color-mix(in srgb, var(--surface, #111827) 92%, transparent)!important;
+}
+body.refined-ui .card:hover,
+body.refined-ui .route-card:hover,
+body.refined-ui .role-card:hover,
+body.refined-ui .tool-card:hover,
+body.refined-ui .nav-pill:hover,
+body.refined-ui .tab:hover,
+body.refined-ui .nav-item:hover,
+body.refined-ui .toolbar-btn:hover,
+body.refined-ui .dt-btn:hover,
+body.refined-ui .button-primary:hover,
+body.refined-ui .button-secondary:hover,
+body.refined-ui .btn:hover,
+body.refined-ui .mini-btn:hover{
+  box-shadow:0 12px 28px rgba(2,6,23,.14)!important;
+}
+body.refined-ui .hero{padding:calc(18px * var(--refx-density))!important}
+body.refined-ui .lead{font-size:14px!important;line-height:1.55!important;max-width:68ch}
+body.refined-ui .kpi-chip,
+body.refined-ui .pill,
+body.refined-ui .badge,
+body.refined-ui .nav-pill,
+body.refined-ui .tab,
+body.refined-ui .toolbar-btn,
+body.refined-ui .btn,
+body.refined-ui .button-primary,
+body.refined-ui .button-secondary,
+body.refined-ui .mini-btn,
+body.refined-ui .dt-btn,
+body.refined-ui .dt-opt,
+body.refined-ui .chip,
+body.refined-ui .chip-select,
+body.refined-ui .select,
+body.refined-ui .field,
+body.refined-ui input,
+body.refined-ui select{
+  border-radius:12px!important;
+}
+body.refined-ui .toolbar-btn,
+body.refined-ui .btn,
+body.refined-ui .button-primary,
+body.refined-ui .button-secondary,
+body.refined-ui .mini-btn,
+body.refined-ui .dt-btn{
+  min-height:36px!important;
+  padding:8px 12px!important;
+}
+body.refined-ui .tabs,
+body.refined-ui .nav-strip,
+body.refined-ui .toolbar{gap:8px!important}
+body.refined-ui .grid2,
+body.refined-ui .grid3,
+body.refined-ui .grid-2,
+body.refined-ui .grid-3,
+body.refined-ui .card-grid,
+body.refined-ui .route-grid,
+body.refined-ui .role-grid,
+body.refined-ui .tool-grid,
+body.refined-ui .tools-grid,
+body.refined-ui .scenario-grid,
+body.refined-ui .surface-grid,
+body.refined-ui .catalog,
+body.refined-ui .mini-grid{
+  gap:12px!important;
+}
+body.refined-ui .card-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important}
+body.refined-ui .grid3,
+body.refined-ui .grid-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important}
+body.refined-ui .tools-grid,
+body.refined-ui .tool-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important}
+body.refined-ui .route-grid,
+body.refined-ui .surface-grid,
+body.refined-ui .scenario-grid{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))!important}
+body.refined-ui .matrix th,
+body.refined-ui .soft-table th,
+body.refined-ui table th{font-size:12px!important}
+body.refined-ui .matrix td,
+body.refined-ui .soft-table td,
+body.refined-ui table td{font-size:12.5px!important}
+body.refined-ui .ascii-block,
+body.refined-ui .ascii{
+  padding:12px!important;
+  border-radius:12px!important;
+  overflow:auto;
+  font-size:12px!important;
+  line-height:1.45!important;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 74%, transparent)!important;
+}
+body.refined-ui .stat-card .stat-num,
+body.refined-ui .stat-card strong{font-size:28px!important}
+body.refined-ui .nav-item.active,
+body.refined-ui .nav-pill.active,
+body.refined-ui .tab.active,
+body.refined-ui [data-panel].active{
+  color:var(--refx-accent)!important;
+  border-color:color-mix(in srgb, var(--refx-accent) 35%, transparent)!important;
+  background:color-mix(in srgb, var(--refx-accent) 12%, transparent)!important;
+}
+body.refined-ui .nav-item.active{border-left-color:var(--refx-accent)!important}
+body.refined-ui .modal-overlay,
+body.refined-ui .overlay,
+body.refined-ui .welcome-wrap,
+body.refined-ui .demo-wrap{
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+}
+.refx-dock{
+  position:fixed;
+  right:14px;
+  bottom:14px;
+  z-index:10000;
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  max-width:min(92vw,480px);
+}
+.refx-fab{
+  height:40px;
+  padding:0 14px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--border, #334155) 72%, transparent);
+  background:color-mix(in srgb, var(--surface, #111827) 90%, transparent);
+  color:var(--text, #e2e8f0);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  box-shadow:0 18px 38px rgba(2,6,23,.24);
+  display:flex;align-items:center;gap:8px;
+  cursor:pointer;
+  font:600 12px/1 var(--refx-font-family);
+}
+.refx-fab:hover{transform:translateY(-1px)}
+.refx-fab .dot{width:8px;height:8px;border-radius:50%;background:var(--refx-accent)}
+.refx-sheet-backdrop{
+  position:fixed;inset:0;z-index:9996;
+  background:rgba(2,6,23,.36);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+  opacity:0;pointer-events:none;transition:opacity .2s ease;
+}
+.refx-sheet-backdrop.show{opacity:1;pointer-events:auto}
+.refx-sheet{
+  position:fixed;
+  top:60px;
+  bottom:14px;
+  width:min(360px, calc(100vw - 28px));
+  border-radius:24px;
+  border:1px solid color-mix(in srgb, var(--border, #334155) 72%, transparent);
+  background:color-mix(in srgb, var(--surface, #111827) 94%, transparent);
+  box-shadow:0 24px 60px rgba(2,6,23,.28);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  z-index:9998;
+  display:flex;
+  flex-direction:column;
+  transform:translateX(20px);
+  opacity:0;
+  pointer-events:none;
+  transition:transform .22s ease, opacity .22s ease;
+}
+.refx-sheet.left{left:14px;transform:translateX(-20px)}
+.refx-sheet.right{right:14px}
+.refx-sheet.show{transform:translateX(0);opacity:1;pointer-events:auto}
+.refx-sheet-head{
+  padding:16px 18px 12px;
+  border-bottom:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+}
+.refx-sheet-head h3{font-size:14px;margin:0 0 4px}
+.refx-sheet-head p{font-size:12px;color:var(--text2, #94a3b8);margin:0}
+.refx-sheet-body{padding:14px;overflow:auto}
+.refx-close{
+  width:32px;height:32px;border-radius:10px;border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  background:transparent;color:var(--text);cursor:pointer
+}
+.refx-toc-card{
+  margin-bottom:12px!important;
+}
+.refx-toc-card .refx-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:10px
+}
+.refx-toc-card .refx-head h3{font-size:15px;margin:0 0 4px}
+.refx-toc-card .refx-head p{font-size:12px;color:var(--text2);margin:0;max-width:64ch}
+.refx-toc-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+.refx-toc-item{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 70%, transparent);
+  border-radius:16px;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 56%, transparent);
+  padding:12px;
+  cursor:pointer;
+  transition:transform .15s ease, border-color .15s ease, background .15s ease;
+}
+.refx-toc-item:hover{
+  transform:translateY(-1px);
+  border-color:color-mix(in srgb, var(--refx-accent) 40%, transparent);
+  background:color-mix(in srgb, var(--refx-accent) 10%, transparent);
+}
+.refx-toc-item strong{display:flex;align-items:center;gap:8px;font-size:13px}
+.refx-toc-item strong .idx{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:999px;
+  background:color-mix(in srgb, var(--refx-accent) 16%, transparent);
+  color:var(--refx-accent);font-size:11px
+}
+.refx-toc-item p{margin:8px 0 0;font-size:12px;color:var(--text2)}
+.refx-toc-list{display:grid;gap:8px}
+.refx-toc-block{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  border-radius:16px;
+  overflow:hidden;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 54%, transparent);
+}
+.refx-toc-top{
+  padding:12px 12px 10px;
+  cursor:pointer;
+}
+.refx-toc-top strong{font-size:13px;display:block}
+.refx-toc-top span{display:block;font-size:11.5px;color:var(--text2);margin-top:4px}
+.refx-toc-sub{
+  padding:0 8px 10px 12px;
+  display:grid;gap:6px
+}
+.refx-toc-sub button{
+  text-align:left;
+  border:none;
+  background:transparent;
+  color:var(--text2);
+  cursor:pointer;
+  padding:6px 8px;
+  border-radius:10px;
+  font:500 12px/1.3 var(--refx-font-family);
+}
+.refx-toc-sub button:hover{
+  background:color-mix(in srgb, var(--refx-accent) 10%, transparent);
+  color:var(--text)
+}
+.refx-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  background:color-mix(in srgb, var(--surface2, #1f2937) 56%, transparent);
+  font:600 11px/1 var(--refx-font-family);
+  color:var(--text2)
+}
+.refx-settings-grid{display:grid;gap:14px}
+.refx-field{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 66%, transparent);
+  border-radius:18px;
+  padding:12px;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 48%, transparent);
+}
+.refx-field h4{font-size:12px;margin:0 0 8px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em}
+.refx-segment{display:flex;gap:6px;flex-wrap:wrap}
+.refx-segment button,
+.refx-reset{
+  min-height:34px;
+  padding:0 12px;
+  border-radius:12px;
+  border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  background:transparent;
+  color:var(--text);
+  cursor:pointer;
+  font:600 12px/1 var(--refx-font-family)
+}
+.refx-segment button.active{background:color-mix(in srgb, var(--refx-accent) 12%, transparent);border-color:color-mix(in srgb, var(--refx-accent) 38%, transparent);color:var(--refx-accent)}
+.refx-range{display:grid;gap:8px}
+.refx-range input[type=range]{width:100%}
+.refx-swatch-row{display:flex;gap:8px;flex-wrap:wrap}
+.refx-swatch{
+  width:24px;height:24px;border-radius:999px;border:2px solid rgba(255,255,255,.08);cursor:pointer;
+  box-shadow:inset 0 0 0 1px rgba(2,6,23,.18)
+}
+.refx-swatch.active{outline:2px solid color-mix(in srgb, var(--refx-accent) 56%, transparent);outline-offset:2px}
+.refx-note{font-size:12px;color:var(--text2);line-height:1.45}
+.refx-legacy-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.refx-legacy-card{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  border-radius:16px;
+  padding:12px;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 54%, transparent);
+}
+.refx-legacy-card strong{display:block;font-size:13px;margin-bottom:6px}
+.refx-legacy-card p{font-size:12px;color:var(--text2);margin:0 0 8px}
+.refx-legacy-card .status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.refx-legacy-card .status.direct{background:rgba(34,197,94,.14);color:#4ade80}
+.refx-legacy-card .status.merged{background:rgba(96,165,250,.16);color:#93c5fd}
+.refx-legacy-card .status.restored{background:rgba(251,191,36,.14);color:#fcd34d}
+.refx-legacy-card .status.expanded{background:rgba(192,132,252,.14);color:#d8b4fe}
+.refx-quality-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px;margin-top:12px
+}
+.refx-quality-card{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  border-radius:16px;padding:12px;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 54%, transparent)
+}
+.refx-quality-card strong{display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:8px}
+.refx-quality-card .num{
+  width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--refx-accent) 15%, transparent);color:var(--refx-accent);font-size:11px
+}
+.refx-quality-card p{margin:0;font-size:12px;color:var(--text2)}
+.refx-flow{
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px
+}
+.refx-flow .box{
+  padding:8px 10px;border-radius:12px;border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  background:color-mix(in srgb, var(--surface2, #1f2937) 56%, transparent);font-size:12px
+}
+.refx-flow .arrow{color:var(--text2)}
+.refx-dep-controls{
+  display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px
+}
+.refx-dep-controls button{
+  min-height:34px;padding:0 12px;border-radius:12px;border:1px solid color-mix(in srgb, var(--border, #334155) 68%, transparent);
+  background:transparent;color:var(--text);cursor:pointer;font:600 12px/1 var(--refx-font-family)
+}
+.refx-dep-controls button.active{
+  background:color-mix(in srgb, var(--refx-accent) 12%, transparent);
+  border-color:color-mix(in srgb, var(--refx-accent) 38%, transparent);
+  color:var(--refx-accent)
+}
+.refx-dep-graph{
+  border:1px solid color-mix(in srgb, var(--border, #334155) 66%, transparent);
+  border-radius:18px;padding:10px;overflow:auto;
+  background:color-mix(in srgb, var(--surface2, #1f2937) 52%, transparent)
+}
+body.refined-ui .refx-skip-original{display:none!important}
+@media (max-width: 960px){
+  .refx-dock{left:14px;right:14px;justify-content:space-between}
+  .refx-sheet{width:calc(100vw - 28px)}
+  .refx-sheet.left,.refx-sheet.right{left:14px;right:14px}
+  body.refined-ui .sidebar{width:248px!important}
+  body.refined-ui .panel{padding:14px!important}
+}
+@media print{
+  .refx-dock,.refx-sheet,.refx-sheet-backdrop{display:none!important}
+  body.refined-ui .panel{display:block!important;page-break-inside:avoid}
+  body.refined-ui .topbar, body.refined-ui .sidebar, body.refined-ui .rail, body.refined-ui #searchBtn, body.refined-ui #demoBtn, body.refined-ui #themeBtn, body.refined-ui .toolbar{display:none!important}
+  body.refined-ui .main, body.refined-ui .workspace{margin:0!important;padding:0!important}
+  body.refined-ui{background:#fff!important;color:#111827!important}
+  body.refined-ui .card, body.refined-ui .section-card, body.refined-ui .route-card, body.refined-ui .tool-card, body.refined-ui .role-card{
+    box-shadow:none!important;border-color:#d1d5db!important;background:#fff!important;color:#111827!important
+  }
+}
+</style>
+
+</head>
+<body>
+  <div class="ambient one"></div>
+  <div class="ambient two"></div>
+  <div class="ambient three"></div>
+
+  <div class="shell no-inspector" id="shell">
+    <header class="topbar glass" data-reveal>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M7 7h10v10H7z" fill="currentColor" opacity=".4"></path>
+            <path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1>Workflow OS</h1>
+          <p>Купертиновский single-file playbook для дашбордов КЦ · v2.0</p>
+        </div>
+      </div>
+
+      <nav class="nav-scroll" id="navTabs" aria-label="Основная навигация">
+        <button class="nav-pill active" data-panel="overview"><span class="nav-index">1</span> Обзор</button>
+        <button class="nav-pill" data-panel="routes"><span class="nav-index">2</span> Маршруты</button>
+        <button class="nav-pill" data-panel="kubiks"><span class="nav-index">3</span> Кубики</button>
+        <button class="nav-pill" data-panel="playbook"><span class="nav-index">4</span> Playbook</button>
+        <button class="nav-pill" data-panel="roles"><span class="nav-index">5</span> Роли</button>
+        <button class="nav-pill" data-panel="tools"><span class="nav-index">6</span> Инструменты</button>
+        <button class="nav-pill" data-panel="scenarios"><span class="nav-index">7</span> Сценарии</button>
+        <button class="nav-pill" data-panel="principles"><span class="nav-index">8</span> Принципы</button>
+      </nav>
+
+      <div class="toolbar">
+        <button class="toolbar-btn" id="searchOpen" aria-label="Открыть быстрый поиск">
+          <span>Поиск</span>
+          <span class="kbd">/</span>
+        </button>
+        <button class="toolbar-btn" id="themeToggle" aria-label="Сменить тему">
+          <span id="themeLabel">Тема: auto</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="panel active" id="panel-overview">
+        <article class="hero glass" data-reveal>
+          <div>
+            <span class="eyebrow">Cupertino refresh</span>
+            <h2>Чище. Плавнее. Полезнее.</h2>
+            <p class="lead">
+              Я взял исходный конструктор и перестроил его в более минималистичный, цельный и живой single-file интерфейс: мягкие стеклянные поверхности, спокойные микро-анимации, нормальная информационная иерархия, быстрый поиск, context inspector справа и новый слой playbook поверх базового процесса.
+            </p>
+            <div class="chip-row">
+              <span class="pill route-golden">Golden Path по умолчанию</span>
+              <span class="pill route-fast">Fast для 24-72 часов</span>
+              <span class="pill route-full">Full для новой предметки</span>
+              <span class="pill route-evo">Evolution для редизайна</span>
+            </div>
+            <div class="hero-actions">
+              <button class="button-primary" data-panel-jump="routes" data-open-route="golden">Открыть рекомендованный маршрут</button>
+              <button class="button-secondary" data-panel-jump="kubiks">Смотреть кубики</button>
+              <button class="button-secondary" data-panel-jump="playbook">Открыть Playbook</button>
+            </div>
+          </div>
+
+          <div class="hero-side">
+            <div class="stat-grid" id="statsGrid">
+              <div class="stat-card"><strong id="statKubiks">21</strong><span>Кубик с входом, выходом и чек-листом</span></div>
+              <div class="stat-card"><strong id="statRoutes">5</strong><span>Маршрутов под разные типы задач</span></div>
+              <div class="stat-card"><strong id="statRoles">11</strong><span>Ролей с распределённой ответственностью</span></div>
+              <div class="stat-card"><strong id="statTools">22</strong><span>Инструмента в целевом стеке</span></div>
+            </div>
+            <div class="spotlight-card">
+              <h3>Что изменилось в v2.0</h3>
+              <p>
+                Добавлены: быстрый поиск по сущностям, filterable-каталог кубиков, inspector, больше контента по артефактам, качеству, рискам и AI-native режиму, а также аккуратные hover/transition-эффекты без визуального цирка.
+              </p>
+            </div>
+            <div class="spotlight-card">
+              <h3>Как использовать</h3>
+              <p>
+                1) выбери маршрут, 2) проверь состав кубиков, 3) открой детали в inspector, 4) используй Playbook для правил и quality bar. Людям нравится усложнять себе жизнь, но здесь я это чуть-чуть предотвратил.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <section class="grid-2">
+          <article class="section-card glass" data-reveal>
+            <div class="section-head">
+              <div>
+                <h3>Новая UX-архитектура</h3>
+                <p>Больше не надо прыгать между тяжёлыми таблицами и модалками ради каждой детали. Справа теперь живёт постоянный inspector, а панели переключаются мягко и без потери контекста.</p>
+              </div>
+            </div>
+            <div class="mini-grid">
+              <div class="mini-card">
+                <strong>Inspector</strong>
+                <p>Открывает маршруты, кубики, роли и сценарии без разрыва потока работы.</p>
+              </div>
+              <div class="mini-card">
+                <strong>Quick Search</strong>
+                <p>Ищет по маршрутам, кубикам, ролям и инструментам с клавиши <code>/</code>.</p>
+              </div>
+              <div class="mini-card">
+                <strong>Playbook layer</strong>
+                <p>Артефакты, cadence, quality bar, anti-patterns, governance и AI-native правила.</p>
+              </div>
+              <div class="mini-card">
+                <strong>Прогрессивное раскрытие</strong>
+                <p>Сначала маршрут и смысл, потом глубина. Не наоборот.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="section-card glass" data-reveal>
+            <div class="section-head">
+              <div>
+                <h3>Что теперь можно делать быстрее</h3>
+                <p>Не только смотреть. Уже есть конкретные механики для работы, а не музей корпоративного знания.</p>
+              </div>
+            </div>
+            <div class="kpi-strip">
+              <div class="kpi-chip"><strong>/</strong><span>поиск по всему конструктору</span></div>
+              <div class="kpi-chip"><strong>1-8</strong><span>быстрый переход между панелями</span></div>
+              <div class="kpi-chip"><strong>ESC</strong><span>закрыть inspector / поиск</span></div>
+            </div>
+            <div class="callout" style="margin-top:14px">
+              Визуальный язык стал спокойнее: крупные заголовки, воздух, мягкие тени, ясные CTA, предсказуемый hover и анимации с уважением к <code>prefers-reduced-motion</code>.
+            </div>
+          </article>
+        </section>
+
+        <section class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Сводка по системе</h3>
+              <p>Ниже краткая картинка того, как это теперь собрано.</p>
+            </div>
+          </div>
+          <pre class="ascii-block">[Запрос] -> [Выбор маршрута] -> [Набор кубиков] -> [Inspector деталей]
+                  |                    |                    |
+                  v                    v                    v
+             Fast/Golden/...      роли / инструменты   playbook / quality bar
+                  |                    |                    |
+                  +--------------------+--------------------+
+                                       |
+                                       v
+                                [Delivery в прод]</pre>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-routes">
+        <article class="decision-wrap">
+          <section class="decision-card glass" data-reveal>
+            <div class="section-head">
+              <div>
+                <h3>Помощник выбора маршрута</h3>
+                <p>Тот же смысл, но теперь без ощущения, что вы общаетесь с формой из 2009-го.</p>
+              </div>
+              <button class="mini-btn" id="decisionReset">Сбросить</button>
+            </div>
+            <div class="decision-steps" id="decisionSteps"></div>
+          </section>
+
+          <aside class="decision-result glass" data-reveal>
+            <div class="section-head">
+              <div>
+                <h3>Рекомендация</h3>
+                <p>Собирается по выбранным ответам. По умолчанию держим голову на плечах и тянемся к Golden Path.</p>
+              </div>
+            </div>
+            <div class="decision-preview" id="decisionPreview"></div>
+            <div class="chip-row" id="decisionSignals"></div>
+            <button class="button-primary" id="decisionOpenRoute">Открыть маршрут</button>
+          </aside>
+        </article>
+
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Маршруты</h3>
+              <p>Выбери карточку, чтобы открыть детали справа. Есть смысловые подсказки, риски, выходы и переходы между маршрутами.</p>
+            </div>
+          </div>
+          <div class="route-grid" id="routeGrid"></div>
+        </article>
+
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Сравнение маршрутов</h3>
+              <p>Когда запускать, когда не запускать, и какой основной артефакт должен появиться на выходе.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="soft-table" id="routeCompareTable"></table>
+          </div>
+        </article>
+
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Матрица кубиков</h3>
+              <p>Старая полезная часть осталась, только больше не выглядит как наказание за любопытство.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="soft-table" id="routeMatrixTable"></table>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel" id="panel-kubiks">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Каталог кубиков</h3>
+              <p>Фильтруй по маршруту, фазе, роли и строке поиска. Наконец-то можно быстро понять, что реально входит в нужный контур.</p>
+            </div>
+            <div class="kpi-chip"><strong id="kubikResultCount">0</strong><span>результатов</span></div>
+          </div>
+          <div class="filters">
+            <input class="field" id="kubikSearch" placeholder="Поиск по ID, названию, ролям, инструментам" />
+            <select class="select" id="phaseFilter">
+              <option value="all">Все фазы</option>
+              <option value="1">1 · Инициация</option>
+              <option value="2">2 · Исследование</option>
+              <option value="3">3 · Проектирование</option>
+              <option value="4">4 · Согласование</option>
+              <option value="5">5 · Реализация</option>
+            </select>
+            <select class="select" id="roleFilter"></select>
+            <button class="mini-btn" id="kubikReset">Сбросить фильтры</button>
+          </div>
+          <div class="pill-row" id="routeFilterPills" style="margin-top:14px"></div>
+        </article>
+
+        <div class="section-grid" id="kubikCatalog"></div>
+      </section>
+
+      <section class="panel" id="panel-playbook">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Playbook</h3>
+              <p>Дополнительный слой к процессу: что считать готовностью, какие артефакты обязательны, где люди особенно любят всё испортить и как этого не делать.</p>
+            </div>
+          </div>
+          <div class="playbook-tabs" id="playbookTabs">
+            <button class="playbook-tab active" data-playbook="artifacts">Артефакты</button>
+            <button class="playbook-tab" data-playbook="cadence">Cadence</button>
+            <button class="playbook-tab" data-playbook="quality">Quality bar</button>
+            <button class="playbook-tab" data-playbook="risks">Риски</button>
+            <button class="playbook-tab" data-playbook="ainative">AI-native</button>
+            <button class="playbook-tab" data-playbook="governance">Governance</button>
+          </div>
+          <div class="playbook-swap" id="playbookSwap" data-reveal></div>
+        </article>
+      </section>
+
+      <section class="panel" id="panel-roles">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Ролевая модель</h3>
+              <p>Чтобы процесс держался не на одном герое, а на системе. Нажми на роль, и inspector покажет её фокус, ключевые кубики и анти-паттерн.</p>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="spotlight-card">
+              <h3>Нагрузка по ролям</h3>
+              <div class="role-heatmap" id="roleHeatmap"></div>
+            </div>
+            <div class="spotlight-card">
+              <h3>Хороший handoff</h3>
+              <p style="margin-bottom:12px">Каждая следующая роль получает не “сделайте красиво”, а входной артефакт, принятые решения и явные границы.</p>
+              <pre class="ascii-block">МП -> АН -> ДИЗ -> ДИ -> ТЛ -> РАЗ -> Тест -> Релиз
+ |     |      |      |     |      |      |       |
+рамка смысл  UX     data  риск   сборка quality prod</pre>
+            </div>
+          </div>
+        </article>
+        <div class="role-grid" id="roleGrid"></div>
+      </section>
+
+      <section class="panel" id="panel-tools">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Инструментальный стек</h3>
+              <p>Разбил на категории, чтобы стек выглядел как система, а не как случайный список любимых слов. Выбери категорию, если нужен более узкий срез.</p>
+            </div>
+          </div>
+          <div class="pill-row" id="toolFilterPills"></div>
+        </article>
+        <div class="tool-grid" id="toolGrid"></div>
+      </section>
+
+      <section class="panel" id="panel-scenarios">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Сценарии применения</h3>
+              <p>Не абстрактные “примерчики”, а готовые паттерны, чтобы быстрее принять решение по маршруту и ожиданиям.</p>
+            </div>
+          </div>
+          <div class="scenario-grid" id="scenarioGrid"></div>
+        </article>
+      </section>
+
+      <section class="panel" id="panel-principles">
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Принципы, культура, словарь</h3>
+              <p>Чтобы эта система не превратилась в ещё один красивый файл, который все кивают, но никто не использует.</p>
+            </div>
+          </div>
+          <div class="principles-grid" id="principlesGrid"></div>
+        </article>
+
+        <article class="section-card glass" data-reveal>
+          <div class="section-head">
+            <div>
+              <h3>Глоссарий</h3>
+              <p>Краткий словарь ключевых понятий, чтобы все одинаково называли одни и те же объекты.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="soft-table glossary-table" id="glossaryTable"></table>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <aside class="inspector glass" id="inspector" aria-live="polite" aria-label="Inspector деталей">
+    <div class="inspector-inner">
+      <div class="inspector-head">
+        <div>
+          <strong id="inspectorTitle">Inspector</strong>
+          <span id="inspectorMeta">Маршруты, кубики, роли и сценарии открываются здесь</span>
+        </div>
+        <button class="icon-btn" id="inspectorClose" aria-label="Закрыть inspector">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="inspector-body" id="inspectorBody"></div>
+    </div>
+  </aside>
+
+  <div class="overlay" id="paletteOverlay">
+    <div class="palette glass">
+      <div class="palette-head">
+        <input class="palette-input" id="paletteInput" placeholder="Поиск по маршрутам, кубикам, ролям, инструментам…" />
+        <span style="color:var(--text-muted);font-size:12px">Нажми <code>1-8</code> для панелей, <code>Enter</code> для первого результата, <code>Esc</code> чтобы закрыть.</span>
+      </div>
+      <div class="palette-results" id="paletteResults"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Скопировано</div>
+
+  <script>
+const KUBIKS = [
+  {id:'К-01',name:'Приём и классификация задачи',phase:1,phaseName:'Инициация',time:'0.5-2 часа',roles:['МП','ЗАК'],routes:{fast:true,golden:true,full:true,lite:true,evo:true},
+   actions:['Получить задачу от заказчика (IMS, письмо, звонок)','Зафиксировать в PM-системе','Пройти Дерево решений — определить маршрут','Назначить команду: аналитик + дизайнер','Создать карточку проекта в PM-системе'],
+   input:['Запрос от заказчика (устный, письменный, карточка инцидента в IMS)'],
+   output:['Карточка проекта в PM-системе','Определённый маршрут','Назначенная команда'],
+   tools:['PM','IMS','Sboard'],
+   checklist:['Задача зафиксирована в PM','Маршрут определён','Команда назначена','Заказчик и представитель заказчика определены']},
+  {id:'К-02',name:'Экспресс-диагностика предметной области',phase:1,phaseName:'Инициация',time:'1-3 дня',roles:['АН','МП'],routes:{fast:false,golden:false,full:true,lite:false,evo:false},
+   actions:['Изучить существующие продукты КЦ по теме','Собрать открытые источники','Проверить наличие данных в хранилище','Выявить стейкхолдеров','Подготовить краткую справку'],
+   input:['Карточка проекта из К-01'],
+   output:['Справка по предметной области','Список стейкхолдеров','Оценка доступности данных','Список материалов для запроса'],
+   tools:['Wiki','BI','Dremio','FS'],
+   checklist:['Справка загружена в Wiki','Понятно, какие данные есть','Стейкхолдеры идентифицированы']},
+  {id:'К-03',name:'Глубокий анализ предметной области',phase:2,phaseName:'Исследование',time:'3-5 дней',roles:['АН','ОС','ЭКС'],routes:{fast:false,golden:false,full:true,lite:false,evo:false},
+   actions:['Проанализировать материалы из К-02','Изучить нормативную базу','Исследовать аналоги','Определить показатели и метрики','Сформулировать гипотезы','Подготовить аналитическую записку'],
+   input:['Справка из К-02','Материалы от заказчика'],
+   output:['Аналитическая записка','Список показателей','Гипотезы о потребностях','Вопросы для интервью'],
+   tools:['Wiki','FS','Нейрон'],
+   checklist:['Аналитическая записка готова','Показатели определены','Вопросы для интервью сформированы']},
+  {id:'К-04',name:'Сбор и анализ обратной связи',phase:2,phaseName:'Исследование',time:'2-5 дней',roles:['ОС','АН'],routes:{fast:false,golden:false,full:true,lite:false,evo:true},
+   actions:['Запросить данные через Сервис кластеризации','Проанализировать кластеры обращений','Выделить инсайты','Подготовить выжимку'],
+   input:['Тема/предметная область'],
+   output:['Отчёт по обратной связи','Инсайты для проектирования'],
+   tools:['Сервис кластеризации','BI','Wiki'],
+   checklist:['Отчёт по ОС готов','Ключевые инсайты выделены']},
+  {id:'К-05',name:'Интервьюирование заказчика',phase:2,phaseName:'Исследование',time:'1-3 дня',roles:['МП','АН','ЗАК','ПЗ','ЭКС'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Подготовить опросный лист','Согласовать время интервью','Провести интервью','Зафиксировать потребности и критерии','Подготовить протокол'],
+   input:['Опросный лист','Аналитические материалы'],
+   output:['Протокол интервью','Список потребностей','Критерии приёмки','Записи интервью'],
+   tools:['Нейрон','Wiki','PM'],
+   checklist:['Интервью проведено','Протокол в Wiki','Потребности и критерии зафиксированы']},
+  {id:'К-06',name:'Привлечение внешних экспертов',phase:2,phaseName:'Исследование',time:'2-5 дней',roles:['МП','ЭКС','АН'],routes:{fast:false,golden:false,full:true,lite:false,evo:false},
+   actions:['Определить нужную экспертизу','Найти и привлечь экспертов','Организовать встречу','Получить позицию экспертов','Интегрировать выводы'],
+   input:['Аналитические материалы из К-03','Вопросы к экспертам'],
+   output:['Экспертное заключение','Предложения экспертов'],
+   tools:['Нейрон','Wiki','Sboard'],
+   checklist:['Экспертные мнения получены','Выводы интегрированы']},
+  {id:'К-07',name:'Формирование концепции',phase:3,phaseName:'Проектирование',time:'2-5 дней',roles:['АН','МП','ДИЗ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Синтезировать результаты исследований','Сформулировать проблему и аудиторию','Определить показатели и тип продукта','Подготовить презентацию','Провести внутреннюю защиту'],
+   input:['Все результаты фазы исследования'],
+   output:['Документ концепции','Тип продукта','Перечень показателей','Источники данных'],
+   tools:['Wiki','Figma/Pixso','Sboard'],
+   checklist:['Концепция оформлена','Тип продукта определён','Показатели перечислены','Источники данных определены','Внутренняя защита пройдена']},
+  {id:'К-08',name:'AI-прототипирование (HTML)',phase:3,phaseName:'Проектирование',time:'2-8 часов',roles:['АН','МП','ДИЗ'],routes:{fast:true,golden:'opt',full:'opt',lite:'opt',evo:false},
+   actions:['Сформулировать промпт для AI','Сгенерировать HTML-дашборд','Заполнить моковыми данными','Итеративно уточнить (2-3 раунда)','Показать заказчику'],
+   input:['Понимание задачи','Перечень показателей'],
+   output:['HTML-файл с прототипом','Скриншоты','Обратная связь'],
+   tools:['AI (Claude Code)','Браузер','Figma'],
+   checklist:['HTML-прототип работает','Показан заказчику','Обратная связь собрана','Решение принято']},
+  {id:'К-09',name:'Создание макета (Figma/Pixso)',phase:3,phaseName:'Проектирование',time:'3-7 дней',roles:['ДИЗ','АН','МП'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Создать макет на основе концепции','Подготовить варианты компоновки','Согласовать с аналитиком и МП','Подготовить спецификацию для разработчика'],
+   input:['Концепция из К-07','AI-прототип из К-08'],
+   output:['Макет в Figma/Pixso','Спецификация для разработчика','Согласованный дизайн'],
+   tools:['Figma','Pixso'],
+   checklist:['Макет готов','Согласован с АН и МП','Спецификация готова']},
+  {id:'К-10',name:'UX-исследование',phase:3,phaseName:'Проектирование',time:'3-5 дней',roles:['ДИЗ','АН','ПЗ'],routes:{fast:false,golden:false,full:true,lite:false,evo:true},
+   actions:['Определить ключевые сценарии','Подготовить прототип','Провести UX-тестирование с 3-5 пользователями','Собрать результаты','Внести корректировки в макет'],
+   input:['Макет из К-09 или прототип из К-08','Сценарии использования'],
+   output:['Отчёт по UX-тестированию','Список проблем','Обновлённый макет'],
+   tools:['Figma','Нейрон','Wiki'],
+   checklist:['UX-тестирование проведено (мин. 3 пользователя)','Проблемы зафиксированы','Макет обновлён']},
+  {id:'К-11',name:'Подготовка модели данных',phase:3,phaseName:'Проектирование',time:'3-7 дней',roles:['ДИ','АН','ТЛ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Определить нужные данные','Проверить наличие в хранилище','Спроектировать модель данных','Определить ETL-пайплайн','Оценить качество данных','Подготовить ФСД'],
+   input:['Показатели из К-07','Макет из К-09'],
+   output:['Модель данных','ФСД','Оценка качества','ТЗ на ETL'],
+   tools:['Dremio','Loginom','Wiki','draw.io','Jupyter Hub'],
+   checklist:['Модель данных задокументирована','Источники определены','Качество оценено','ФСД готова']},
+  {id:'К-12',name:'Согласование с командой и техлидом',phase:4,phaseName:'Согласование',time:'0.5-1 день',roles:['МП','ТЛ','АН','ДИЗ','ДИ'],routes:{fast:true,golden:true,full:true,lite:true,evo:true},
+   actions:['Провести командную встречу','Обсудить реализуемость','ТЛ: оценить архитектуру','Согласовать план и сроки','Зафиксировать решения и риски'],
+   input:['Все артефакты текущего маршрута'],
+   output:['Протокол согласования','Согласованные сроки','Риски и решения'],
+   tools:['PM','Sboard','Нейрон'],
+   checklist:['Команда согласна','Сроки согласованы','Риски зафиксированы']},
+  {id:'К-13',name:'Рассмотрение на ГКО',phase:4,phaseName:'Согласование',time:'1 день + слот',roles:['МП','АН','ГКО'],routes:{fast:false,golden:true,full:true,lite:false,evo:false},
+   actions:['Подготовить материалы для ГКО','Представить на ГКО','Получить решение','При замечаниях — вернуться на доработку'],
+   input:['Концепция, макет, модель данных','План и оценка сроков'],
+   output:['Решение ГКО','Протокол ГКО'],
+   tools:['PM','Figma','Wiki'],
+   checklist:['Материалы представлены','Решение получено','План доработки (при замечаниях)']},
+  {id:'К-14',name:'Согласование с заказчиком',phase:4,phaseName:'Согласование',time:'1-5 дней',roles:['МП','ЗАК','ПЗ'],routes:{fast:false,golden:true,full:true,lite:false,evo:false},
+   actions:['Подготовить презентацию','Провести встречу','Собрать обратную связь','Получить письменное подтверждение'],
+   input:['Одобренная на ГКО концепция','Макет, модель данных, план'],
+   output:['Письменное подтверждение','Финальная концепция'],
+   tools:['IMS','СЭД','PM','Figma'],
+   checklist:['Концепция представлена','Подтверждение получено','Замечания учтены']},
+  {id:'К-15',name:'Подготовка ТЗ',phase:5,phaseName:'Реализация',time:'3-7 дней',roles:['АН','ТЛ','ДИ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Подготовить ТЗ на разработку','Подготовить ТЗ на ETL','Согласовать с техлидом','Писать на языке разработчика'],
+   input:['Концепция, макет, модель данных','Согласования'],
+   output:['ТЗ на разработку','ТЗ на ETL','Согласованное ТЗ'],
+   tools:['Wiki','PM','Figma'],
+   checklist:['ТЗ на разработку готово','ТЗ на ETL готово','ТЗ согласовано с ТЛ','ТЗ на языке разработчика']},
+  {id:'К-16',name:'Декомпозиция и спринт-планирование',phase:5,phaseName:'Реализация',time:'0.5-1 день',roles:['ТЛ','МП','РАЗ','ДИ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Декомпозировать ТЗ на задачи','Оценить трудоёмкость','Распределить задачи','Сформировать бэклог спринта','Провести планирование'],
+   input:['ТЗ из К-15'],
+   output:['Задачи с оценками','Бэклог спринта','План-график'],
+   tools:['PM','Sboard'],
+   checklist:['Задачи декомпозированы','Трудоёмкость оценена','Спринт спланирован','Каждая задача имеет исполнителя']},
+  {id:'К-17',name:'Разработка ETL-пайплайнов',phase:5,phaseName:'Реализация',time:'3-10 дней',roles:['ДИ','ТЛ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Настроить подключение к источникам','Реализовать ETL-пайплайн','Настроить расписание','Реализовать контроль качества','Проверить данные','Код в GitLab'],
+   input:['ТЗ на ETL','Модель данных'],
+   output:['Работающий ETL','Данные в Dremio','Расписание','Код в GitLab'],
+   tools:['Nifi','Airflow','Loginom','Dremio','Jupyter Hub','GitLab'],
+   checklist:['Пайплайн работает','Данные в Dremio','Расписание настроено','Код в GitLab','Качество проверено']},
+  {id:'К-18',name:'Разработка продукта',phase:5,phaseName:'Реализация',time:'5-15 дней',roles:['РАЗ','ТЛ','ДИЗ'],routes:{fast:true,golden:true,full:true,lite:true,evo:true},
+   actions:['Создать дашборд в BI-системе','Реализовать визуализации','Подключить данные из Dremio','Настроить права доступа','Визуальный контроль','Ежедневные стендапы','Демо'],
+   input:['ТЗ или макет или задача','Данные в Dremio'],
+   output:['Работающий дашборд','Настроенные права'],
+   tools:['BI','Dremio','Keycloak','Nginx','GitLab','PM'],
+   checklist:['Дашборд реализован','Визуализации соответствуют макету','Данные корректны','Права настроены','Демо проведено']},
+  {id:'К-19',name:'Тестирование и контроль качества',phase:5,phaseName:'Реализация',time:'2-5 дней',roles:['АН','ДИ','ТЛ'],routes:{fast:true,golden:true,full:true,lite:true,evo:true},
+   actions:['Функциональное тестирование','Контроль качества данных (4 уровня)','Техническое тестирование','Релиз в тестовый контур','Приёмочное тестирование','Правки и повторная проверка'],
+   input:['Работающий дашборд','Работающий ETL'],
+   output:['Отчёт о тестировании','Перечень правок','Дашборд в тестовом контуре','Подтверждение заказчика'],
+   tools:['BI','Grafana','Zabbix','PM','Wiki'],
+   checklist:['Функциональное тестирование пройдено','Данные проверены на 4 уровнях','Производительность приемлема','Релиз в тестовый контур','Правки исправлены','Заказчик подтвердил']},
+  {id:'К-20',name:'Релиз',phase:5,phaseName:'Реализация',time:'0.5-1 день',roles:['ТЛ','МП','DevOps'],routes:{fast:true,golden:true,full:true,lite:true,evo:true},
+   actions:['Подготовить чек-лист релиза','Выполнить релиз в прод','Верифицировать работоспособность','Уведомить заказчика','Зафиксировать в PM'],
+   input:['Протестированный продукт','Подтверждение заказчика'],
+   output:['Дашборд в проде','Уведомление заказчику','Запись в PM'],
+   tools:['BI','Jenkins','Keycloak','Nginx','Grafana','PM'],
+   checklist:['Релиз выполнен','Дашборд работает в проде','Мониторинг работает','Заказчик уведомлён']},
+  {id:'К-21',name:'Авторский надзор и передача',phase:5,phaseName:'Реализация',time:'1-4 недели',roles:['МП','АН','ТЛ'],routes:{fast:false,golden:true,full:true,lite:false,evo:true},
+   actions:['Мониторить использование','Собирать обратную связь','Оперативно исправлять баги','Провести ретроспективу','Подготовить документацию','Передать в техподдержку','Закрыть проект'],
+   input:['Работающий продукт в проде'],
+   output:['Документация по поддержке','Карточка в техподдержке','Lessons learned','Закрытый проект'],
+   tools:['PM','Wiki','rc.ac.gov.ru','Grafana'],
+   checklist:['Авторский надзор завершён','Ретроспектива проведена','Документация готова','Передача выполнена','Проект закрыт']}
+];
+
+const ROUTES = {
+  fast:{name:'FAST TRACK',color:'var(--fast)',label:'Срочное AI-прототипирование',time:'1-3 дня',desc:'Инцидент — нужен результат за 24-72 часа',blocks:['К-01','К-08','К-12','К-18','К-19','К-20'],note:'К-08 создаёт HTML-прототип. К-19 в экспресс-режиме. После стабилизации — переход на Golden Path.'},
+  golden:{name:'GOLDEN PATH',color:'var(--golden)',label:'Стандартный путь',time:'2-6 недель',desc:'Типовой дашборд, задача понятна, данные есть',blocks:['К-01','К-05','К-07','К-09','К-11','К-12','К-13','К-14','К-15','К-16','К-17','К-18','К-19','К-20','К-21'],note:'К-14 обязателен — заказчик подтверждает концепцию перед разработкой.'},
+  full:{name:'FULL PATH',color:'var(--full)',label:'Полный путь',time:'4-12 недель',desc:'Крупный проект, новая предметная область',blocks:['К-01','К-02','К-03','К-04','К-05','К-06','К-07','К-09','К-10','К-11','К-12','К-13','К-14','К-15','К-16','К-17','К-18','К-19','К-20','К-21'],note:'Включает ВСЕ 21 кубик (К-08 опциональный).'},
+  lite:{name:'LITE PATH',color:'var(--lite)',label:'Лёгкий путь',time:'1-5 дней',desc:'Небольшая доработка существующего дашборда',blocks:['К-01','К-12','К-18','К-19','К-20'],note:'Минимум бюрократии, максимум действия.'},
+  evo:{name:'EVOLUTION PATH',color:'var(--evo)',label:'Путь развития',time:'3-8 недель',desc:'Существенная переработка или редизайн',blocks:['К-01','К-04','К-05','К-07','К-09','К-10','К-11','К-12','К-15','К-16','К-17','К-18','К-19','К-20','К-21'],note:'Переосмысление на базе накопленного опыта.'}
+};
+
+const ROLES = [
+  {code:'ЗАК',name:'Заказчик',desc:'Ставит задачу, принимает результат, согласовывает концепцию',kubiks:['К-01','К-05','К-14']},
+  {code:'ПЗ',name:'Представитель заказчика',desc:'Детализирует потребности, предоставляет данные и экспертизу',kubiks:['К-05','К-10','К-14']},
+  {code:'МП',name:'Менеджер проекта',desc:'Ведёт проект, координирует команду, управляет сроками',kubiks:['К-01','К-05','К-07','К-08','К-09','К-12','К-13','К-14','К-16','К-20','К-21']},
+  {code:'АН',name:'Аналитик',desc:'Исследует предметную область, формирует концепцию, готовит ТЗ',kubiks:['К-02','К-03','К-04','К-05','К-07','К-08','К-11','К-12','К-13','К-15','К-19','К-21']},
+  {code:'ДИЗ',name:'Дизайнер',desc:'Создаёт макеты, прототипы, обеспечивает UX/UI качество',kubiks:['К-07','К-08','К-09','К-10','К-12','К-18']},
+  {code:'ТЛ',name:'Техлид',desc:'Архитектурные решения, декомпозиция, ревью кода',kubiks:['К-11','К-12','К-15','К-16','К-17','К-18','К-19','К-20','К-21']},
+  {code:'РАЗ',name:'Разработчик',desc:'Реализация продукта, ETL, интеграции',kubiks:['К-16','К-18']},
+  {code:'ДИ',name:'Дата-инженер',desc:'Модель данных, ETL-пайплайны, качество данных',kubiks:['К-11','К-12','К-16','К-17','К-19']},
+  {code:'ОС',name:'Специалист по ОС',desc:'Анализ обратной связи граждан по теме',kubiks:['К-03','К-04']},
+  {code:'DevOps',name:'DevOps-инженер',desc:'Инфраструктура, CI/CD, мониторинг, управление доступом',kubiks:['К-18','К-19','К-20']},
+  {code:'ЭКС',name:'Внешний эксперт',desc:'Экспертиза предметной области',kubiks:['К-03','К-05','К-06']}
+];
+
+const TOOLS = [
+  {name:'PM (pm.ac.gov.ru)',purpose:'Управление проектами, задачи, сроки',kubiks:['К-01','К-12','К-13','К-14','К-15','К-16','К-19','К-20','К-21']},
+  {name:'IMS',purpose:'Карточки инцидентов, переписка с заказчиком',kubiks:['К-01','К-14']},
+  {name:'BI',purpose:'Создание дашбордов',kubiks:['К-02','К-04','К-18','К-19','К-20']},
+  {name:'Wiki',purpose:'Документация, артефакты',kubiks:['К-02','К-03','К-04','К-05','К-06','К-07','К-10','К-15','К-19','К-21']},
+  {name:'Figma / Pixso',purpose:'Макеты, прототипы, спецификации',kubiks:['К-07','К-08','К-09','К-10','К-13','К-14']},
+  {name:'Dremio',purpose:'Аналитическое хранилище',kubiks:['К-02','К-11','К-17','К-18']},
+  {name:'Loginom',purpose:'Моделирование данных, трансформации',kubiks:['К-11','К-17']},
+  {name:'Nifi',purpose:'ETL-оркестратор (Java)',kubiks:['К-17']},
+  {name:'Airflow',purpose:'ETL-оркестратор (Python)',kubiks:['К-17']},
+  {name:'Jupyter Hub',purpose:'Python-разработка, исследование данных',kubiks:['К-11','К-17']},
+  {name:'GitLab',purpose:'Репозиторий кода',kubiks:['К-17','К-18']},
+  {name:'Keycloak',purpose:'Управление доступом',kubiks:['К-18','К-20']},
+  {name:'Nginx',purpose:'Конфигурация доступа',kubiks:['К-18','К-20']},
+  {name:'Grafana / Zabbix',purpose:'Мониторинг',kubiks:['К-19','К-20','К-21']},
+  {name:'Jenkins',purpose:'CI/CD',kubiks:['К-20']},
+  {name:'Нейрон',purpose:'AI-ассистент (расшифровка встреч)',kubiks:['К-03','К-05','К-06','К-10','К-12']},
+  {name:'Sboard',purpose:'Командное пространство',kubiks:['К-01','К-06','К-12','К-16']},
+  {name:'СЭД',purpose:'Документооборот',kubiks:['К-14']},
+  {name:'Формуляр',purpose:'Формы сбора данных',kubiks:['К-11','К-17']},
+  {name:'FS (fs.ac.gov.ru)',purpose:'Файловое хранилище',kubiks:['К-02','К-03','К-11']},
+  {name:'rc.ac.gov.ru',purpose:'Техподдержка',kubiks:['К-21']},
+  {name:'Сервис кластеризации',purpose:'Анализ обратной связи',kubiks:['К-04']}
+];
+
+const ROUTE_UI = {
+  fast: {
+    accent: 'var(--route-fast)',
+    pill: 'FAST TRACK',
+    summary: 'Экстренный маршрут с AI-прототипом и коротким контуром согласований.',
+    when: 'Инцидент, штабной запрос, срочная демонстрация руководству, кризисный контур 24-72 часа.',
+    avoid: 'Новая предметная область без владельца решений, слабые данные, спор о метриках.',
+    outputs: ['Работающий HTML/BI прототип', 'Минимальный KPI-набор', 'Список техдолга для перехода в Golden Path'],
+    risks: ['Иллюзия готовности', 'Недопроверенные данные', 'UX-долг и ручные обходы'],
+    transfer: 'После стабилизации перейти в Golden Path, иначе срочный режим превращается в постоянный хаос.'
+  },
+  golden: {
+    accent: 'var(--route-golden)',
+    pill: 'GOLDEN PATH',
+    summary: 'Опиниированный дефолт. Нормальная скорость, нормальная глубина, нормальный шанс не сломать всем психику.',
+    when: 'Типовой дашборд, понятная задача, известный заказчик, метрики уже обсуждены.',
+    avoid: 'Крупная новая тема с высокой неопределённостью, отсутствие доступа к данным, сильный редизайн существующего продукта.',
+    outputs: ['Подтверждённая концепция', 'Макет + модель данных', 'ТЗ, ETL, релиз и авторский надзор'],
+    risks: ['Растянутые согласования', 'Слишком ранняя разработка без выверенной модели данных', 'Неполный протокол интервью'],
+    transfer: 'Если неопределённость резко растёт, эскалировать в Full Path. Если задача сужается, ужать в Lite Path.'
+  },
+  full: {
+    accent: 'var(--route-full)',
+    pill: 'FULL PATH',
+    summary: 'Маршрут для новой предметки, сложной координации и реального исследования, а не имитации деятельности.',
+    when: 'Новая область, несколько стейкхолдеров, спорные показатели, высокая цена ошибки.',
+    avoid: 'Небольшие доработки и очевидные задачи, где полный контур просто сожрёт время.',
+    outputs: ['Аналитическая записка', 'UX-исследование', 'Модель данных, согласования, релиз, передача'],
+    risks: ['Исследование ради исследования', 'Срывы интервью', 'Размывание ответственности между ролями'],
+    transfer: 'После снижения неопределённости можно резать хвост и выпускать релиз по Golden или Evolution Path.'
+  },
+  lite: {
+    accent: 'var(--route-lite)',
+    pill: 'LITE PATH',
+    summary: 'Быстрая и дисциплинированная доработка существующего продукта без театра бюрократии.',
+    when: 'Добавить пару графиков, новый KPI, фильтр, корректировку прав или локальный фикс.',
+    avoid: 'Любые изменения, которые меняют модель данных, логику навигации или ожидания пользователей.',
+    outputs: ['Локальная доработка', 'Короткое согласование', 'Тест и релиз'],
+    risks: ['Недооценка масштаба', 'Спрятанный редизайн под видом “маленькой правки”', 'Непроверенные зависимости'],
+    transfer: 'Если всплывает новая логика, не геройствовать и переводить в Evolution или Golden.'
+  },
+  evo: {
+    accent: 'var(--route-evo)',
+    pill: 'EVOLUTION PATH',
+    summary: 'Путь для серьёзного улучшения существующего продукта, когда надо переосмыслить, но не всё строить заново.',
+    when: 'Редизайн, переработка сценариев, новая модель использования, накопленный UX/данный долг.',
+    avoid: 'Совсем новые предметные области и экстренные инциденты.',
+    outputs: ['Обновлённая концепция', 'UX-проверка', 'Новая модель данных / ETL, релиз, авторский надзор'],
+    risks: ['Смешивание старой и новой логики', 'Наслоение компромиссов', 'Сопротивление пользователей'],
+    transfer: 'Если оказывается, что домен новый, поднимать в Full Path. Если правка локальная, резать до Lite.'
+  }
+};
+
+const ROUTE_COMPARE = [
+  { key: 'fast', bestFor: '24-72 часа', notFor: 'неясная предметка', approval: 'команда + техлид', artifact: 'HTML/BI MVP' },
+  { key: 'golden', bestFor: 'типовой новый дашборд', notFor: 'крупная неизвестность', approval: 'ГКО + заказчик', artifact: 'концепция + макет + ТЗ' },
+  { key: 'full', bestFor: 'новая область', notFor: 'мелкая доработка', approval: 'полный контур', artifact: 'исследование + UX + data model' },
+  { key: 'lite', bestFor: 'локальная доработка', notFor: 'редизайн и новая модель данных', approval: 'быстрое согласование', artifact: 'короткий change-set' },
+  { key: 'evo', bestFor: 'сильная переработка', notFor: 'срочный инцидент', approval: 'команда + заказчик', artifact: 'обновлённая концепция' }
+];
+
+const ROLE_NOTES = {
+  'ЗАК': { focus: 'Владеет бизнес-контекстом и критерием “это нам подходит”.', anti: 'Не должен исчезать после постановки задачи.' },
+  'ПЗ': { focus: 'Детализирует сценарии, ограничения и реальные потребности пользователей.', anti: 'Не должен подменять коллективного заказчика одиночным мнением.' },
+  'МП': { focus: 'Снимает неопределённость, двигает решения, держит ритм и границы маршрута.', anti: 'Не превращается в пересылатель писем и секретариат.' },
+  'АН': { focus: 'Переводит хаос предметной области в структуру, метрики и требования.', anti: 'Не пишет абстрактную аналитику без операционного выхода.' },
+  'ДИЗ': { focus: 'Собирает интерфейс, который читается за секунды, а не за две политических эпохи.', anti: 'Не рисует красоту без сценариев и данных.' },
+  'ТЛ': { focus: 'Отвечает за реализуемость, архитектурные решения и техриск.', anti: 'Не подключается слишком поздно.' },
+  'РАЗ': { focus: 'Собирает продукт и визуализации, стыкует данные и доступы.', anti: 'Не принимает продуктовые решения в вакууме.' },
+  'ДИ': { focus: 'Делает модель данных, пайплайны и контроль качества.', anti: 'Не должен получать “всё срочно” без модели и приоритетов.' },
+  'ОС': { focus: 'Приземляет продукт на живую обратную связь и реальные кластеры боли.', anti: 'Не превращает OS-аналитику в декоративный PDF.' },
+  'DevOps': { focus: 'Гарантирует выпуск, доступ, мониторинг и предсказуемую эксплуатацию.', anti: 'Не подключается только в момент релиза.' },
+  'ЭКС': { focus: 'Даёт предметную глубину там, где у команды нет нужного опыта.', anti: 'Не должен становиться единственным источником истины.' }
+};
+
+const TOOL_CATEGORY_META = {
+  all: { label: 'Все', desc: 'Полный стек' },
+  discovery: { label: 'Discovery', desc: 'Исследование и согласование' },
+  design: { label: 'Design', desc: 'Прототипы и UX' },
+  data: { label: 'Data', desc: 'Модель, ETL, аналитика' },
+  delivery: { label: 'Delivery', desc: 'Планирование и выпуск' },
+  infra: { label: 'Infra', desc: 'Доступ, мониторинг, контуры' }
+};
+
+const TOOL_CATEGORY_MAP = {
+  'PM (pm.ac.gov.ru)': 'delivery',
+  'IMS': 'delivery',
+  'BI': 'data',
+  'Wiki': 'discovery',
+  'Figma / Pixso': 'design',
+  'Dremio': 'data',
+  'Loginom': 'data',
+  'Nifi': 'data',
+  'Airflow': 'data',
+  'Jupyter Hub': 'data',
+  'GitLab': 'delivery',
+  'Keycloak': 'infra',
+  'Nginx': 'infra',
+  'Grafana / Zabbix': 'infra',
+  'Jenkins': 'delivery',
+  'Нейрон': 'discovery',
+  'Sboard': 'delivery',
+  'СЭД': 'delivery',
+  'Формуляр': 'data',
+  'FS (fs.ac.gov.ru)': 'discovery',
+  'rc.ac.gov.ru': 'infra',
+  'Сервис кластеризации': 'discovery'
+};
+
+const PLAYBOOK_FRAGMENTS = {
+  artifacts: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>Артефакты по фазам</h3>
+        <p>Вместо безразмерной папки “финал_последний_v8” тут есть внятный набор выходов. Каждый артефакт нужен, чтобы следующий человек не гадал по звёздам.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="soft-table">
+          <thead>
+            <tr><th>Фаза</th><th>Главный артефакт</th><th>Зачем нужен</th><th>Кто владеет</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Инициация</td><td>Карточка проекта + выбранный маршрут</td><td>Снять двусмысленность по типу задачи и SLA</td><td>МП</td></tr>
+            <tr><td>Исследование</td><td>Аналитическая записка / протокол интервью</td><td>Зафиксировать контекст, метрики, ограничения</td><td>АН</td></tr>
+            <tr><td>Проектирование</td><td>Концепция + макет + модель данных</td><td>Свести продукт, UX и данные в одну систему</td><td>АН / ДИЗ / ДИ</td></tr>
+            <tr><td>Согласование</td><td>Протокол решений</td><td>Остановить бесконечное “мы такого не говорили”</td><td>МП</td></tr>
+            <tr><td>Реализация</td><td>ТЗ, ETL, релизный чек-лист, документация</td><td>Довести до продакшена и поддержки</td><td>ТЛ / ДИ / РАЗ</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mini-grid">
+        <div class="mini-card">
+          <strong>Definition of Ready</strong>
+          <p>Есть владелец, выбран маршрут, понятны критерии приёмки, известен источник данных или способ его добыть.</p>
+        </div>
+        <div class="mini-card">
+          <strong>Definition of Done</strong>
+          <p>Есть релиз, тестирование, подтверждение заказчика, мониторинг и артефакт передачи в поддержку.</p>
+        </div>
+      </div>
+    </div>
+  `,
+  cadence: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>Каденс коммуникации</h3>
+        <p>Большая часть провалов не из-за SQL, а из-за молчания. Поэтому тут нормальный ритм, а не шаманизм.</p>
+      </div>
+      <div class="mini-grid">
+        <div class="mini-card">
+          <strong>Ежедневно</strong>
+          <ul class="plain-list">
+            <li>15-минутный синк по блокерам на Fast / релизной неделе</li>
+            <li>Обновление статуса в PM, без романов на восемь экранов</li>
+          </ul>
+        </div>
+        <div class="mini-card">
+          <strong>Еженедельно</strong>
+          <ul class="plain-list">
+            <li>Демо промежуточного состояния</li>
+            <li>Пересмотр рисков, зависимостей и приоритетов</li>
+          </ul>
+        </div>
+        <div class="mini-card">
+          <strong>На контрольных точках</strong>
+          <ul class="plain-list">
+            <li>Протокол решения после интервью / концепции / UX / ГКО</li>
+            <li>Фиксация “что меняем, что не меняем, кто подтверждает”</li>
+          </ul>
+        </div>
+      </div>
+      <pre class="ascii-block">ЗАК -> МП -> АН -> ДИЗ/ДИ -> ТЛ -> РАЗ -> Тест -> Релиз -> Поддержка
+ |      |      |        |      |      |      |       |         |
+цель  маршрут  смысл   UX     риск   сборка качество прод      знания</pre>
+    </div>
+  `,
+  quality: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>Планка качества</h3>
+        <p>“Работает у меня” не считается. Продукт должен быть корректным по данным, понятным по UX и управляемым в эксплуатации.</p>
+      </div>
+      <div class="check-grid">
+        <div class="check-card"><strong>1. Смысл</strong><p>Метрика отвечает на вопрос пользователя, а не просто существует.</p></div>
+        <div class="check-card"><strong>2. Данные</strong><p>Есть источник, обновление, контроль качества и объяснимость расчёта.</p></div>
+        <div class="check-card"><strong>3. Интерфейс</strong><p>Первый экран читается за 5-7 секунд. Главные сигналы видны без скролла.</p></div>
+        <div class="check-card"><strong>4. Производство</strong><p>Релиз воспроизводим, доступы настроены, ответственность понятна.</p></div>
+        <div class="check-card"><strong>5. Эксплуатация</strong><p>Есть мониторинг, техподдержка, владелец и канал обратной связи.</p></div>
+      </div>
+      <div class="callout">
+        Минимум для приёмки: совпадение данных с эталоном, сценарии пользователя проходят без подсказок, ключевые фильтры и права доступа проверены, заказчик дал явное подтверждение.
+      </div>
+    </div>
+  `,
+  risks: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>Риски и анти-паттерны</h3>
+        <p>Любой воркфлоу люди пытаются сломать одинаково изобретательно. Вот самые частые способы.</p>
+      </div>
+      <div class="mini-grid">
+        <div class="mini-card danger">
+          <strong>Анти-паттерн: “давайте сразу в разработку”</strong>
+          <p>Следствие: переписывание требований уже по ходу реализации, кривые метрики, потеря доверия.</p>
+        </div>
+        <div class="mini-card danger">
+          <strong>Анти-паттерн: “это мелкая правка”</strong>
+          <p>Следствие: под видом Lite Path проезжает редизайн, меняется data contract, всё горит.</p>
+        </div>
+        <div class="mini-card danger">
+          <strong>Анти-паттерн: “заказчик потом посмотрит”</strong>
+          <p>Следствие: поздний разворот по концепции, отмена решений, несогласованная логика продукта.</p>
+        </div>
+      </div>
+      <ul class="plain-list">
+        <li><strong>Ранний сигнал эскалации:</strong> появились новые ключевые роли, новая модель данных или спор о KPI.</li>
+        <li><strong>Ранний сигнал деградации:</strong> протоколы не пишутся, обратная связь устная, макет оторван от данных.</li>
+        <li><strong>Нормальная реакция:</strong> сменить маршрут, а не делать вид, что старый всё ещё подходит.</li>
+      </ul>
+    </div>
+  `,
+  ainative: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>AI-native режим</h3>
+        <p>AI здесь не для магического театра. Он ускоряет цикл “сформулировал → проверил → уточнил → зафиксировал”.</p>
+      </div>
+      <div class="mini-grid">
+        <div class="mini-card"><strong>Где AI уместен</strong><p>К-08 HTML-прототип, расшифровка встреч, свёртка исследовательских материалов, draft-формулировки требований.</p></div>
+        <div class="mini-card"><strong>Где AI опасен</strong><p>Финальные цифры, правовые трактовки, модель данных без ревью, согласование вместо людей.</p></div>
+      </div>
+      <div class="callout">
+        Рабочее правило: AI ускоряет мыслительный цикл, но не подменяет владельца решения. Красивый галлюцинатор никого ещё не спасал.
+      </div>
+    </div>
+  `,
+  governance: () => `
+    <div class="fragment-stack">
+      <div class="fragment-hero">
+        <h3>Governance и контрольные точки</h3>
+        <p>Чтобы система жила, у неё должны быть версии, владельцы и право сказать “нет, так не делаем”.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="soft-table">
+          <thead><tr><th>Точка</th><th>Решение</th><th>Кто подтверждает</th><th>Что дальше</th></tr></thead>
+          <tbody>
+            <tr><td>После выбора маршрута</td><td>Подходит ли глубина процесса</td><td>МП + ТЛ</td><td>Запуск фазы</td></tr>
+            <tr><td>После концепции</td><td>Есть ли понятный продуктовый контур</td><td>Команда</td><td>Макет / модель данных</td></tr>
+            <tr><td>Перед разработкой</td><td>Готовы ли UX и данные</td><td>ТЛ + АН + ДИ</td><td>ТЗ и декомпозиция</td></tr>
+            <tr><td>Перед релизом</td><td>Есть ли качество и подтверждение</td><td>ТЛ + заказчик</td><td>Прод</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        Версионируйте сам воркфлоу: раз в квартал пересматривайте, какие кубики реально помогают, а какие вы просто привыкли носить как талисман.
+      </div>
+    </div>
+  `
+};
+
+const SCENARIOS = [
+  {
+    id: 'S-01',
+    title: 'Паводки / кризисный контур',
+    route: 'fast',
+    situation: 'Нужен штабной дашборд за 48 часов для отслеживания инцидента и сводки по регионам.',
+    signal: 'Есть срочность, но нет роскоши делать длинное исследование.',
+    risks: ['Ручные данные на старте', 'Спор о KPI в момент релиза'],
+    deliverables: ['HTML-прототип', 'быстрая сборка в BI', 'минимальный набор мониторинга'],
+    steps: ['К-01', 'К-08', 'К-12', 'К-18', 'К-19', 'К-20'],
+    done: 'Руководитель открывает дашборд без инструкций и видит критические регионы за 5 секунд.'
+  },
+  {
+    id: 'S-02',
+    title: 'Новый дашборд по туризму',
+    route: 'golden',
+    situation: 'Тема знакомая, данные частично доступны, нужен новый продукт под понятный набор метрик.',
+    signal: 'Нормальный кандидат на Golden Path без лишнего драматизма.',
+    risks: ['Растянуть интервью', 'Сделать макет раньше проверки модели данных'],
+    deliverables: ['концепция', 'макет', 'модель данных', 'релиз и передача'],
+    steps: ['К-01', 'К-05', 'К-07', 'К-09', 'К-11', 'К-12', 'К-13', 'К-14', 'К-15', 'К-16', 'К-17', 'К-18', 'К-19', 'К-20', 'К-21'],
+    done: 'Есть подтверждённая концепция, корректные данные и поддерживаемый релиз.'
+  },
+  {
+    id: 'S-03',
+    title: 'Новая предметка “рынок труда”',
+    route: 'full',
+    situation: 'Сразу несколько стейкхолдеров, показатели спорные, нормативка и аналоги ещё не собраны.',
+    signal: 'Если это загнать в Golden, получите красивую оболочку с пустотой внутри.',
+    risks: ['Исследование без фокуса', 'Срыв интервью', 'Смена KPI на полпути'],
+    deliverables: ['аналитическая записка', 'UX-исследование', 'обоснованная модель данных'],
+    steps: ['К-01', 'К-02', 'К-03', 'К-04', 'К-05', 'К-06', 'К-07', 'К-09', 'К-10', 'К-11', 'К-12', 'К-13', 'К-14', 'К-15', 'К-16', 'К-17', 'К-18', 'К-19', 'К-20', 'К-21'],
+    done: 'После релиза никто не спорит, что означает ключевой показатель и откуда он берётся.'
+  },
+  {
+    id: 'S-04',
+    title: 'Редизайн существующего продукта',
+    route: 'evo',
+    situation: 'Продукт уже в проде, но накопились UX-долг, новая логика сценариев и проблемы с восприятием.',
+    signal: 'Нужно переосмысление без полной перезагрузки.',
+    risks: ['Смешать старый и новый интерфейс', 'Игнорировать реальную обратную связь'],
+    deliverables: ['обновлённая концепция', 'UX-валидация', 'перестроенный маршрут доставки'],
+    steps: ['К-01', 'К-04', 'К-05', 'К-07', 'К-09', 'К-10', 'К-11', 'К-12', 'К-15', 'К-16', 'К-17', 'К-18', 'К-19', 'К-20', 'К-21'],
+    done: 'Пользователь проходит ключевой сценарий быстрее, а команда может сопровождать продукт без костылей.'
+  },
+  {
+    id: 'S-05',
+    title: 'Добавить новый KPI и 2 графика',
+    route: 'lite',
+    situation: 'Существующий дашборд стабилен, нужен локальный прирост ценности.',
+    signal: 'Не надо делать вид, что это новая платформа данных.',
+    risks: ['Недооценить зависимость от модели данных', 'Не проверить влияние на права доступа'],
+    deliverables: ['короткий change-set', 'локальный тест', 'быстрый релиз'],
+    steps: ['К-01', 'К-12', 'К-18', 'К-19', 'К-20'],
+    done: 'Новая визуализация встроена в текущий сценарий, данные корректны, пользователи не ломаются.'
+  }
+];
+
+const PRINCIPLES_EXTENDED = [
+  { num: '01', title: 'Сначала маршрут, потом деятельность', text: 'Не нужно запускать все 21 кубик, чтобы почувствовать себя серьёзными людьми. Сначала выбирается тип задачи.' },
+  { num: '02', title: 'Система сильнее героя', text: 'Надо проектировать так, чтобы новый человек мог войти в процесс без телепатии и мифологии команды.' },
+  { num: '03', title: 'Дизайн не живёт отдельно от данных', text: 'Макет без модели данных быстро превращается в красивую ложь.' },
+  { num: '04', title: 'AI ускоряет, но не подтверждает', text: 'Нейросеть может помочь собрать, переписать и прототипировать, но не может взять ответственность за корректность цифр.' },
+  { num: '05', title: 'Протокол важнее памяти', text: 'Если решение не записано, решение не существует. Остальное — устный фольклор.' },
+  { num: '06', title: 'Меньше шума на первом экране', text: 'Купертиновская чистота тут не про моду, а про то, чтобы сигнал находился быстрее фонового визуального мусора.' }
+];
+
+const GLOSSARY_EXTENDED = [
+  ['Кубик', 'Самодостаточный блок работ с входом, выходом, ролями и критерием завершения.'],
+  ['Маршрут', 'Осмысленная последовательность кубиков под определённый тип задачи.'],
+  ['Inspector', 'Контекстная панель справа, где открываются детали маршрутов, ролей, кубиков и сценариев.'],
+  ['Playbook', 'Слой правил, артефактов и quality bar поверх базового процесса.'],
+  ['Definition of Ready', 'Минимум информации, без которого запуск работ создаёт хаос.'],
+  ['Definition of Done', 'Минимум качества, без которого нельзя называть результат завершённым.']
+];
+
+
+const APP = {
+  state: {
+    panel: 'overview',
+    theme: localStorage.getItem('workflow-theme') || 'auto',
+    decision: { 1: null, 2: null, 3: null, 4: null },
+    kubik: { query: '', route: 'all', phase: 'all', role: 'all' },
+    toolCategory: 'all',
+    playbook: 'artifacts',
+    selectedRoute: null,
+    paletteIndex: 0
+  },
+  fragmentUrls: { playbook: {} },
+  searchIndex: []
+};
+
+const PANEL_ORDER = ['overview','routes','kubiks','playbook','roles','tools','scenarios','principles'];
+const PHASE_NAMES = { 1: 'Инициация', 2: 'Исследование', 3: 'Проектирование', 4: 'Согласование', 5: 'Реализация' };
+const DECISION_STEPS = [
+  { id: 1, title: 'Какая срочность?', options: [
+    { value: 'fast', label: 'Инцидент · 24-72 часа' },
+    { value: 'normal', label: 'Нормальный режим' }
+  ] },
+  { id: 2, title: 'Это новый продукт или доработка?', options: [
+    { value: 'lite', label: 'Доработка существующего' },
+    { value: 'new', label: 'Новый продукт / существенная новая логика' }
+  ] },
+  { id: 3, title: 'Насколько понятна задача?', options: [
+    { value: 'known', label: 'Есть шаблон / данные известны' },
+    { value: 'partial', label: 'Понятно частично' },
+    { value: 'unknown', label: 'Высокая неопределённость' }
+  ] },
+  { id: 4, title: 'Какой масштаб и неопределённость?', options: [
+    { value: 'full', label: 'Крупный проект / новая область' },
+    { value: 'evo', label: 'Серьёзная переработка / редизайн' }
+  ] }
+];
+
+const INSPECTOR_WELCOME = `
+  <div class="empty-state">
+    <div>
+      <div class="eyebrow" style="margin-bottom:12px">Inspector</div>
+      <h3 style="margin:0 0 10px;font-size:28px;letter-spacing:-.04em">Открой любую сущность</h3>
+      <p style="margin:0;max-width:34ch;color:var(--text-soft);line-height:1.6">
+        Маршрут, кубик, роль, инструмент или сценарий. Всё открывается здесь без отдельной модалки и без лишнего прыжка по экрану.
+      </p>
+    </div>
+  </div>
+`;
+
+function routeAccent(key) {
+  return `var(--route-${key})`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function reduceMotionEnabled() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function withViewTransition(fn) {
+  if (reduceMotionEnabled()) return fn();
+  if (document.startViewTransition) {
+    document.startViewTransition(fn);
+  } else {
+    fn();
+  }
+}
+
+let motionModulePromise;
+function loadMotionModule() {
+  if (motionModulePromise !== undefined) return motionModulePromise;
+  motionModulePromise = Promise.resolve(null);
+  return motionModulePromise;
+}
+
+async function reveal(root = document) {
+  if (reduceMotionEnabled()) return;
+  const targets = [...root.querySelectorAll('[data-reveal]:not([data-revealed])')].filter(el => el.getClientRects().length);
+  if (!targets.length) return;
+  targets.forEach(el => el.setAttribute('data-revealed', 'true'));
+  const motion = await loadMotionModule();
+  if (!motion) return;
+  motion.animate(
+    targets,
+    { opacity: [0, 1], y: [18, 0], filter: ['blur(8px)', 'blur(0px)'] },
+    { delay: motion.stagger(0.04), duration: 0.46, easing: [.22,1,.36,1] }
+  );
+}
+
+function showToast(message) {
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.remove('show'), 1700);
+}
+
+function setTheme(theme) {
+  APP.state.theme = theme;
+  localStorage.setItem('workflow-theme', theme);
+  if (theme === 'auto') {
+    document.body.removeAttribute('data-theme');
+  } else {
+    document.body.setAttribute('data-theme', theme);
+  }
+  document.getElementById('themeLabel').textContent = `Тема: ${theme}`;
+}
+
+function toggleTheme() {
+  const order = ['auto', 'light', 'dark'];
+  const next = order[(order.indexOf(APP.state.theme) + 1) % order.length];
+  setTheme(next);
+}
+
+function setPanel(panel, options = {}) {
+  if (!PANEL_ORDER.includes(panel)) return;
+  APP.state.panel = panel;
+  withViewTransition(() => {
+    document.querySelectorAll('.nav-pill').forEach(btn => btn.classList.toggle('active', btn.dataset.panel === panel));
+    document.querySelectorAll('.panel').forEach(node => node.classList.toggle('active', node.id === `panel-${panel}`));
+    if (!options.silentHash) location.hash = panel;
+  });
+  requestAnimationFrame(() => reveal(document.getElementById(`panel-${panel}`)));
+}
+
+function renderDecisionSteps() {
+  const container = document.getElementById('decisionSteps');
+  container.innerHTML = DECISION_STEPS.map(step => {
+    const disabled = (step.id === 2 && APP.state.decision[1] === 'fast') ||
+      (step.id === 3 && (!APP.state.decision[1] || APP.state.decision[1] === 'fast' || APP.state.decision[2] === 'lite')) ||
+      (step.id === 4 && APP.state.decision[3] !== 'unknown');
+    return `
+      <section class="decision-step" ${disabled ? 'style="opacity:.6"' : ''}>
+        <div class="decision-step-head">
+          <span class="step-index">${step.id}</span>
+          <strong>${step.title}</strong>
+        </div>
+        <div class="decision-options">
+          ${step.options.map(opt => `
+            <button class="decision-option ${APP.state.decision[step.id] === opt.value ? 'active' : ''}"
+                    data-decision-step="${step.id}" data-decision-value="${opt.value}" ${disabled ? 'disabled' : ''}>
+              ${opt.label}
+            </button>
+          `).join('')}
+        </div>
+      </section>
+    `;
+  }).join('');
+}
+
+function recommendedRoute() {
+  const d = APP.state.decision;
+  if (d[1] === 'fast') return 'fast';
+  if (!d[1]) return 'golden';
+  if (d[2] === 'lite') return 'lite';
+  if (!d[2]) return 'golden';
+  if (d[3] === 'known' || d[3] === 'partial') return 'golden';
+  if (!d[3]) return 'golden';
+  if (d[4] === 'full') return 'full';
+  if (d[4] === 'evo') return 'evo';
+  return 'golden';
+}
+
+function renderDecisionPreview() {
+  const key = recommendedRoute();
+  const route = ROUTES[key];
+  const ui = ROUTE_UI[key];
+  APP.state.selectedRoute = key;
+  const preview = document.getElementById('decisionPreview');
+  preview.innerHTML = `
+    <span class="route-badge" style="--route-accent:${routeAccent(key)};color:${routeAccent(key)};border-color:color-mix(in srgb, ${routeAccent(key)} 20%, var(--border));background:color-mix(in srgb, ${routeAccent(key)} 14%, transparent)">
+      ${ui.pill}
+    </span>
+    <h4 style="color:${routeAccent(key)}">${route.label}</h4>
+    <p>${ui.summary}</p>
+  `;
+  document.getElementById('decisionSignals').innerHTML = [
+    `Время: ${route.time}`,
+    `Кубиков: ${route.blocks.length}`,
+    `Когда: ${ui.when}`
+  ].map(v => `<span class="chip">${v}</span>`).join('');
+}
+
+function resetDecision() {
+  APP.state.decision = { 1: null, 2: null, 3: null, 4: null };
+  renderDecisionSteps();
+  renderDecisionPreview();
+}
+
+function applyDecision(step, value) {
+  APP.state.decision[step] = value;
+  if (step === 1 && value === 'fast') {
+    APP.state.decision[2] = null;
+    APP.state.decision[3] = null;
+    APP.state.decision[4] = null;
+  } else if (step === 2 && value === 'lite') {
+    APP.state.decision[3] = null;
+    APP.state.decision[4] = null;
+  } else if (step === 3 && value !== 'unknown') {
+    APP.state.decision[4] = null;
+  }
+  renderDecisionSteps();
+  renderDecisionPreview();
+}
+
+function routeBlocks(key) {
+  return ROUTES[key].blocks.map(id => KUBIKS.find(k => k.id === id)).filter(Boolean);
+}
+
+function copyRoutePlan(key) {
+  const route = ROUTES[key];
+  const ui = ROUTE_UI[key];
+  const text = [
+    `${route.name} — ${route.label}`,
+    `Время: ${route.time}`,
+    `Описание: ${route.desc}`,
+    `Когда использовать: ${ui.when}`,
+    `Не использовать: ${ui.avoid}`,
+    `Кубики: ${route.blocks.join(' -> ')}`
+  ].join('\n');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast('Маршрут скопирован'),
+      () => showToast('Не удалось скопировать')
+    );
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    showToast('Маршрут скопирован');
+  } catch (error) {
+    showToast('Не удалось скопировать');
+  } finally {
+    ta.remove();
+  }
+}
+
+function openInspector({ title = 'Inspector', meta = '', html = INSPECTOR_WELCOME } = {}) {
+  document.getElementById('inspectorTitle').textContent = title;
+  document.getElementById('inspectorMeta').textContent = meta;
+  document.getElementById('inspectorBody').innerHTML = html;
+  document.getElementById('inspector').classList.add('open');
+  document.body.classList.add('inspector-open');
+  document.getElementById('shell').classList.remove('no-inspector');
+  reveal(document.getElementById('inspectorBody'));
+}
+
+function closeInspector() {
+  document.getElementById('inspector').classList.remove('open');
+  document.body.classList.remove('inspector-open');
+  document.getElementById('shell').classList.add('no-inspector');
+}
+
+function renderRouteCards() {
+  const container = document.getElementById('routeGrid');
+  container.innerHTML = Object.entries(ROUTES).map(([key, route]) => {
+    const ui = ROUTE_UI[key];
+    return `
+      <article class="route-card glass ${APP.state.selectedRoute === key ? 'active' : ''}" style="--route-accent:${routeAccent(key)}" data-reveal data-open-route="${key}">
+        <div class="route-top">
+          <div>
+            <div class="route-badge">${ui.pill}</div>
+            <h4 class="route-title">${route.label}</h4>
+            <p class="route-subtitle">${ui.summary}</p>
+          </div>
+          <div class="route-meta">
+            <span class="chip">${route.time}</span>
+            <span class="chip">${route.blocks.length} кубиков</span>
+          </div>
+        </div>
+        <div class="route-meta">
+          <span class="pill route-${key}">${route.name}</span>
+          <span class="chip">${route.desc}</span>
+        </div>
+        <div class="route-cta">
+          <button class="mini-btn" data-open-route="${key}">Открыть</button>
+          <button class="mini-btn ghost" data-copy-route="${key}">Скопировать</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderRouteCompareTable() {
+  const table = document.getElementById('routeCompareTable');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Маршрут</th>
+        <th>Лучше всего подходит для</th>
+        <th>Не подходит для</th>
+        <th>Контур согласования</th>
+        <th>Ключевой артефакт</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${ROUTE_COMPARE.map(row => `
+        <tr>
+          <td><button class="mini-btn ghost" data-open-route="${row.key}" style="padding:0;color:${routeAccent(row.key)}">${ROUTES[row.key].name}</button></td>
+          <td>${row.bestFor}</td>
+          <td>${row.notFor}</td>
+          <td>${row.approval}</td>
+          <td>${row.artifact}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+function renderRouteMatrix() {
+  const table = document.getElementById('routeMatrixTable');
+  const routes = Object.keys(ROUTES);
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Кубик</th>
+        <th>Название</th>
+        ${routes.map(key => `<th style="color:${routeAccent(key)}">${ROUTES[key].name}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${KUBIKS.map(k => `
+        <tr>
+          <td><button class="mini-btn ghost" data-open-kubik="${k.id}" style="padding:0">${k.id}</button></td>
+          <td>${k.name}</td>
+          ${routes.map(key => {
+            const val = k.routes[key];
+            return `<td>${val === true ? '✓' : val === 'opt' ? '○' : ''}</td>`;
+          }).join('')}
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+function renderRouteInspector(key) {
+  const route = ROUTES[key];
+  const ui = ROUTE_UI[key];
+  const blocks = routeBlocks(key);
+  const phaseCounts = blocks.reduce((acc, item) => {
+    acc[item.phase] = (acc[item.phase] || 0) + 1;
+    return acc;
+  }, {});
+  return `
+    <section class="inspector-block">
+      <div class="route-badge" style="width:fit-content;background:color-mix(in srgb, ${routeAccent(key)} 14%, transparent);border-color:color-mix(in srgb, ${routeAccent(key)} 24%, var(--border));color:${routeAccent(key)}">
+        ${ui.pill}
+      </div>
+      <h3>${route.label}</h3>
+      <p>${ui.summary}</p>
+      <div class="inspector-kpis">
+        <div class="metric"><strong>${route.time}</strong><br>типовое время</div>
+        <div class="metric"><strong>${blocks.length}</strong><br>кубиков</div>
+        <div class="metric"><strong>${Object.keys(phaseCounts).length}</strong><br>фаз охвачено</div>
+      </div>
+      <div class="pipeline">
+        ${blocks.map(item => `<button class="node" data-open-kubik="${item.id}">${item.id}</button>`).join('')}
+      </div>
+    </section>
+    <section class="inspector-block">
+      <strong>Когда выбирать</strong>
+      <p>${ui.when}</p>
+      <strong>Когда не выбирать</strong>
+      <p>${ui.avoid}</p>
+    </section>
+    <section class="inspector-block">
+      <strong>Выходы</strong>
+      <ul>${ui.outputs.map(item => `<li>${item}</li>`).join('')}</ul>
+      <strong>Риски</strong>
+      <ul>${ui.risks.map(item => `<li>${item}</li>`).join('')}</ul>
+      <strong>Переход</strong>
+      <p>${ui.transfer}</p>
+    </section>
+    <section class="inspector-block">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="mini-btn" data-copy-route="${key}">Скопировать маршрут</button>
+        <button class="mini-btn" data-panel-jump="kubiks" data-route-focus="${key}">Показать кубики маршрута</button>
+      </div>
+    </section>
+  `;
+}
+
+function populateRoleFilter() {
+  const select = document.getElementById('roleFilter');
+  const options = ['<option value="all">Все роли</option>'].concat(
+    ROLES.map(role => `<option value="${role.code}">${role.code} · ${role.name}</option>`)
+  );
+  select.innerHTML = options.join('');
+}
+
+function renderRouteFilterPills() {
+  const container = document.getElementById('routeFilterPills');
+  container.innerHTML = ['all'].concat(Object.keys(ROUTES)).map(key => {
+    const active = APP.state.kubik.route === key;
+    const label = key === 'all' ? 'Все маршруты' : ROUTES[key].name;
+    return `<button class="route-filter-chip ${active ? 'active' : ''}" data-kubik-route="${key}" ${key !== 'all' ? `style="color:${routeAccent(key)}"` : ''}>${label}</button>`;
+  }).join('');
+}
+
+function matchesQuery(k, query) {
+  if (!query) return true;
+  const hay = [
+    k.id, k.name, k.phaseName, k.time, k.roles.join(' '),
+    (k.tools || []).join(' '), (k.actions || []).join(' '), (k.output || []).join(' ')
+  ].join(' ').toLowerCase();
+  return hay.includes(query.toLowerCase());
+}
+
+function filteredKubiks() {
+  return KUBIKS.filter(k => {
+    if (APP.state.kubik.route !== 'all' && !k.routes[APP.state.kubik.route]) return false;
+    if (APP.state.kubik.phase !== 'all' && String(k.phase) !== APP.state.kubik.phase) return false;
+    if (APP.state.kubik.role !== 'all' && !k.roles.includes(APP.state.kubik.role)) return false;
+    if (!matchesQuery(k, APP.state.kubik.query)) return false;
+    return true;
+  });
+}
+
+function kubikPreviewText(k) {
+  const outputs = (k.output || []).slice(0,2).join(' · ');
+  return outputs || 'Есть вход, выход и контрольные точки';
+}
+
+function renderKubikCatalog() {
+  const container = document.getElementById('kubikCatalog');
+  const items = filteredKubiks();
+  document.getElementById('kubikResultCount').textContent = items.length;
+  if (!items.length) {
+    container.innerHTML = `<article class="section-card glass"><div class="empty-state"><div><h3 style="margin:0 0 8px">Ничего не найдено</h3><p style="margin:0;color:var(--text-soft)">Сними пару фильтров. Люди любят строить очень конкретные запросы и потом удивляться тишине.</p></div></div></article>`;
+    return;
+  }
+  const grouped = items.reduce((acc, item) => {
+    (acc[item.phase] ||= []).push(item);
+    return acc;
+  }, {});
+  container.innerHTML = Object.entries(grouped).map(([phase, group]) => `
+    <section class="phase-group" data-reveal>
+      <div class="phase-banner">
+        <strong>${phase} · ${PHASE_NAMES[phase]}</strong>
+        <span>${group.length} куб.</span>
+      </div>
+      <div class="kubik-grid">
+        ${group.map(k => `
+          <article class="kubik-card" data-open-kubik="${k.id}">
+            <div class="meta-line">
+              <span class="meta-chip">${k.id}</span>
+              <span class="meta-chip">${k.time}</span>
+              <span class="meta-chip">${k.phaseName}</span>
+            </div>
+            <div>
+              <h4>${k.name}</h4>
+              <p style="margin-top:8px">${kubikPreviewText(k)}</p>
+            </div>
+            <div class="route-mini-list">
+              ${Object.entries(k.routes).filter(([, v]) => v).map(([routeKey, value]) => `<span class="pill route-${routeKey}">${ROUTES[routeKey].name}${value === 'opt' ? ' · opt' : ''}</span>`).join('')}
+            </div>
+            <div class="meta-line">
+              ${k.roles.map(role => `<span class="chip">${role}</span>`).join('')}
+            </div>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `).join('');
+  reveal(container);
+}
+
+function renderKubikInspector(id) {
+  const k = KUBIKS.find(item => item.id === id);
+  if (!k) return INSPECTOR_WELCOME;
+  const routeList = Object.entries(k.routes).filter(([, val]) => val).map(([key, val]) => `<span class="pill route-${key}">${ROUTES[key].name}${val === 'opt' ? ' · optional' : ''}</span>`).join('');
+  return `
+    <section class="inspector-block">
+      <div class="meta-line">
+        <span class="meta-chip">${k.id}</span>
+        <span class="meta-chip">${k.phaseName}</span>
+        <span class="meta-chip">${k.time}</span>
+      </div>
+      <h3>${k.name}</h3>
+      <p>${kubikPreviewText(k)}</p>
+      <div class="route-mini-list">${routeList}</div>
+      <div class="inspector-kpis">
+        <div class="metric"><strong>${k.roles.length}</strong><br>ролей</div>
+        <div class="metric"><strong>${k.tools.length}</strong><br>инструментов</div>
+        <div class="metric"><strong>${k.checklist.length}</strong><br>проверок</div>
+      </div>
+    </section>
+    <section class="inspector-block">
+      <strong>Что делаем</strong>
+      <ol>${k.actions.map(item => `<li>${item}</li>`).join('')}</ol>
+    </section>
+    <section class="inspector-block">
+      <strong>Вход</strong>
+      <ul>${k.input.map(item => `<li>${item}</li>`).join('')}</ul>
+      <strong>Выход</strong>
+      <ul>${k.output.map(item => `<li>${item}</li>`).join('')}</ul>
+    </section>
+    <section class="inspector-block">
+      <strong>Инструменты</strong>
+      <div class="chip-row">${k.tools.map(tool => `<button class="chip" data-open-tool="${escapeHtml(tool)}">${tool}</button>`).join('')}</div>
+      <strong>Checklist выхода</strong>
+      <ul>${k.checklist.map(item => `<li>${item}</li>`).join('')}</ul>
+    </section>
+  `;
+}
+
+function roleUsageStats() {
+  return ROLES.map(role => ({
+    ...role,
+    count: KUBIKS.filter(k => k.roles.includes(role.code)).length
+  })).sort((a, b) => b.count - a.count);
+}
+
+function renderRoleHeatmap() {
+  const items = roleUsageStats();
+  const max = items[0]?.count || 1;
+  document.getElementById('roleHeatmap').innerHTML = items.map(item => `
+    <div class="heat-row">
+      <div class="heat-label">${item.code}</div>
+      <div class="heat-track"><div class="heat-bar" style="--value:${(item.count / max) * 100}%"></div></div>
+      <div class="heat-value">${item.count}</div>
+    </div>
+  `).join('');
+}
+
+function renderRoles() {
+  const grid = document.getElementById('roleGrid');
+  grid.innerHTML = ROLES.map(role => {
+    const note = ROLE_NOTES[role.code] || { focus: role.desc, anti: 'Не терять контекст и протокол решений.' };
+    return `
+      <article class="role-card" data-open-role="${role.code}" data-reveal>
+        <div class="role-code">${role.code}</div>
+        <h4>${role.name}</h4>
+        <p>${note.focus}</p>
+        <div class="meta-line">
+          <span class="chip">${role.kubiks.length} ключевых кубиков</span>
+          <span class="chip">${role.desc}</span>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderRoleInspector(code) {
+  const role = ROLES.find(item => item.code === code);
+  if (!role) return INSPECTOR_WELCOME;
+  const note = ROLE_NOTES[code] || { focus: role.desc, anti: 'Не терять контекст.' };
+  const relevantKubiks = KUBIKS.filter(k => k.roles.includes(code));
+  return `
+    <section class="inspector-block">
+      <div class="role-code" style="width:fit-content">${role.code}</div>
+      <h3>${role.name}</h3>
+      <p>${note.focus}</p>
+      <div class="inspector-kpis">
+        <div class="metric"><strong>${relevantKubiks.length}</strong><br>кубиков задействовано</div>
+        <div class="metric"><strong>${role.kubiks.length}</strong><br>ключевых в исходном описании</div>
+      </div>
+    </section>
+    <section class="inspector-block">
+      <strong>Анти-паттерн</strong>
+      <p>${note.anti}</p>
+      <strong>Ключевые кубики</strong>
+      <div class="pipeline">${relevantKubiks.map(k => `<button class="node" data-open-kubik="${k.id}">${k.id}</button>`).join('')}</div>
+    </section>
+  `;
+}
+
+function toolCategory(tool) {
+  return TOOL_CATEGORY_MAP[tool.name] || 'delivery';
+}
+
+function renderToolFilters() {
+  const container = document.getElementById('toolFilterPills');
+  container.innerHTML = Object.entries(TOOL_CATEGORY_META).map(([key, meta]) => `
+    <button class="tool-filter-chip ${APP.state.toolCategory === key ? 'active' : ''}" data-tool-filter="${key}">${meta.label}</button>
+  `).join('');
+}
+
+function renderTools() {
+  const grid = document.getElementById('toolGrid');
+  const items = TOOLS.filter(tool => APP.state.toolCategory === 'all' || toolCategory(tool) === APP.state.toolCategory);
+  grid.innerHTML = items.map(tool => `
+    <article class="tool-card" data-open-tool="${escapeHtml(tool.name)}" data-reveal>
+      <div class="meta-line">
+        <span class="meta-chip">${TOOL_CATEGORY_META[toolCategory(tool)].label}</span>
+        <span class="meta-chip">${tool.kubiks.length} кубиков</span>
+      </div>
+      <h4>${tool.name}</h4>
+      <p>${tool.purpose}</p>
+      <div class="chip-row">${tool.kubiks.slice(0, 8).map(k => `<span class="chip">${k}</span>`).join('')}</div>
+    </article>
+  `).join('');
+  reveal(grid);
+}
+
+function renderToolInspector(name) {
+  const tool = TOOLS.find(item => item.name === name);
+  if (!tool) return INSPECTOR_WELCOME;
+  return `
+    <section class="inspector-block">
+      <div class="meta-line">
+        <span class="meta-chip">${TOOL_CATEGORY_META[toolCategory(tool)].label}</span>
+        <span class="meta-chip">${tool.kubiks.length} кубиков</span>
+      </div>
+      <h3>${tool.name}</h3>
+      <p>${tool.purpose}</p>
+    </section>
+    <section class="inspector-block">
+      <strong>Где используется</strong>
+      <div class="pipeline">${tool.kubiks.map(k => `<button class="node" data-open-kubik="${k}">${k}</button>`).join('')}</div>
+    </section>
+  `;
+}
+
+function renderScenarios() {
+  const grid = document.getElementById('scenarioGrid');
+  grid.innerHTML = SCENARIOS.map(item => `
+    <article class="scenario-card" data-open-scenario="${item.id}" data-reveal>
+      <div class="meta-line">
+        <span class="pill route-${item.route}">${ROUTES[item.route].name}</span>
+        <span class="meta-chip">${item.steps.length} шагов</span>
+      </div>
+      <h4>${item.title}</h4>
+      <p>${item.situation}</p>
+      <div class="scenario-foot">
+        <span class="chip">${item.signal}</span>
+        <button class="mini-btn" data-open-scenario="${item.id}">Открыть</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function renderScenarioInspector(id) {
+  const item = SCENARIOS.find(s => s.id === id);
+  if (!item) return INSPECTOR_WELCOME;
+  return `
+    <section class="inspector-block">
+      <div class="meta-line">
+        <span class="meta-chip">${item.id}</span>
+        <span class="pill route-${item.route}">${ROUTES[item.route].name}</span>
+      </div>
+      <h3>${item.title}</h3>
+      <p>${item.situation}</p>
+      <div class="inspector-kpis">
+        <div class="metric"><strong>${item.steps.length}</strong><br>шагов</div>
+        <div class="metric"><strong>${ROUTES[item.route].time}</strong><br>типовой горизонт</div>
+      </div>
+    </section>
+    <section class="inspector-block">
+      <strong>Сигнал маршрута</strong>
+      <p>${item.signal}</p>
+      <strong>Риски</strong>
+      <ul>${item.risks.map(r => `<li>${r}</li>`).join('')}</ul>
+      <strong>Deliverables</strong>
+      <ul>${item.deliverables.map(d => `<li>${d}</li>`).join('')}</ul>
+    </section>
+    <section class="inspector-block">
+      <strong>Маршрут</strong>
+      <div class="pipeline">${item.steps.map(step => `<button class="node" data-open-kubik="${step}">${step}</button>`).join('')}</div>
+      <strong>Критерий done</strong>
+      <p>${item.done}</p>
+    </section>
+  `;
+}
+
+function renderPrinciples() {
+  document.getElementById('principlesGrid').innerHTML = PRINCIPLES_EXTENDED.map(item => `
+    <article class="principle-card" data-reveal>
+      <div class="meta-line"><span class="meta-chip">${item.num}</span></div>
+      <h4>${item.title}</h4>
+      <p>${item.text}</p>
+    </article>
+  `).join('');
+
+  document.getElementById('glossaryTable').innerHTML = `
+    <tbody>
+      ${GLOSSARY_EXTENDED.map(([term, desc]) => `<tr><td>${term}</td><td>${desc}</td></tr>`).join('')}
+    </tbody>
+  `;
+}
+
+function renderPlaybookFragment(key) {
+  APP.state.playbook = key;
+  document.querySelectorAll('.playbook-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.playbook === key));
+  const swap = document.getElementById('playbookSwap');
+  swap.innerHTML = PLAYBOOK_FRAGMENTS[key] ? PLAYBOOK_FRAGMENTS[key]() : '';
+  reveal(swap);
+}
+
+function wirePlaybookHtmx() {
+  if (window.htmx) {
+    window.htmx.config.globalViewTransitions = true;
+  }
+  Object.entries(PLAYBOOK_FRAGMENTS).forEach(([key, factory]) => {
+    const html = `<div data-reveal>${factory()}</div>`;
+    APP.fragmentUrls.playbook[key] = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  });
+  document.querySelectorAll('.playbook-tab').forEach(btn => {
+    const key = btn.dataset.playbook;
+    if (!APP.fragmentUrls.playbook[key]) return;
+    btn.setAttribute('hx-get', APP.fragmentUrls.playbook[key]);
+    btn.setAttribute('hx-target', '#playbookSwap');
+    btn.setAttribute('hx-swap', 'innerHTML transition:true');
+  });
+  if (window.htmx) window.htmx.process(document.getElementById('playbookTabs'));
+}
+
+function buildSearchIndex() {
+  APP.searchIndex = [
+    ...Object.entries(ROUTES).map(([key, route]) => ({
+      key: `route:${key}`,
+      type: 'Маршрут',
+      title: route.label,
+      subtitle: ROUTE_UI[key].summary,
+      panel: 'routes',
+      open: () => {
+        setPanel('routes');
+        APP.state.selectedRoute = key;
+        renderRouteCards();
+        openInspector({ title: route.label, meta: route.name, html: renderRouteInspector(key) });
+      }
+    })),
+    ...KUBIKS.map(k => ({
+      key: `kubik:${k.id}`,
+      type: 'Кубик',
+      title: `${k.id} · ${k.name}`,
+      subtitle: kubikPreviewText(k),
+      panel: 'kubiks',
+      open: () => {
+        setPanel('kubiks');
+        openInspector({ title: `${k.id}`, meta: k.phaseName, html: renderKubikInspector(k.id) });
+      }
+    })),
+    ...ROLES.map(role => ({
+      key: `role:${role.code}`,
+      type: 'Роль',
+      title: `${role.code} · ${role.name}`,
+      subtitle: (ROLE_NOTES[role.code] || { focus: role.desc }).focus,
+      panel: 'roles',
+      open: () => {
+        setPanel('roles');
+        openInspector({ title: `${role.code} · ${role.name}`, meta: 'Роль', html: renderRoleInspector(role.code) });
+      }
+    })),
+    ...TOOLS.map(tool => ({
+      key: `tool:${tool.name}`,
+      type: 'Инструмент',
+      title: tool.name,
+      subtitle: tool.purpose,
+      panel: 'tools',
+      open: () => {
+        setPanel('tools');
+        openInspector({ title: tool.name, meta: TOOL_CATEGORY_META[toolCategory(tool)].label, html: renderToolInspector(tool.name) });
+      }
+    })),
+    ...SCENARIOS.map(item => ({
+      key: `scenario:${item.id}`,
+      type: 'Сценарий',
+      title: item.title,
+      subtitle: item.situation,
+      panel: 'scenarios',
+      open: () => {
+        setPanel('scenarios');
+        openInspector({ title: item.title, meta: item.id, html: renderScenarioInspector(item.id) });
+      }
+    }))
+  ];
+}
+
+function openPalette() {
+  document.getElementById('paletteOverlay').classList.add('show');
+  document.body.classList.add('palette-open');
+  const input = document.getElementById('paletteInput');
+  input.value = '';
+  APP.state.paletteIndex = 0;
+  renderPaletteResults('');
+  setTimeout(() => input.focus(), 20);
+}
+
+function closePalette() {
+  document.getElementById('paletteOverlay').classList.remove('show');
+  document.body.classList.remove('palette-open');
+}
+
+function renderPaletteResults(query) {
+  const container = document.getElementById('paletteResults');
+  const q = query.trim().toLowerCase();
+  const results = APP.searchIndex.filter(item => {
+    if (!q) return true;
+    return `${item.type} ${item.title} ${item.subtitle}`.toLowerCase().includes(q);
+  }).slice(0, 16);
+  if (!results.length) {
+    container.innerHTML = `<div class="empty-state" style="min-height:180px"><div><h3 style="margin:0 0 8px">Ничего не найдено</h3><p style="margin:0;color:var(--text-soft)">Сформулируй чуть шире. Машины, увы, пока не читают намёки так же плохо, как люди.</p></div></div>`;
+    return;
+  }
+  container.innerHTML = results.map((item, idx) => `
+    <button class="palette-item ${idx === APP.state.paletteIndex ? 'active' : ''}" data-palette-key="${item.key}">
+      <div style="text-align:left">
+        <small>${item.type}</small>
+        <strong>${item.title}</strong>
+        <span>${item.subtitle}</span>
+      </div>
+      <span class="kbd">${item.panel}</span>
+    </button>
+  `).join('');
+}
+
+function findSearchItem(key) {
+  return APP.searchIndex.find(item => item.key === key);
+}
+
+function syncHashPanel() {
+  const hash = location.hash.replace('#', '');
+  if (PANEL_ORDER.includes(hash)) {
+    setPanel(hash, { silentHash: true });
+  }
+}
+
+function initStats() {
+  document.getElementById('statKubiks').textContent = KUBIKS.length;
+  document.getElementById('statRoutes').textContent = Object.keys(ROUTES).length;
+  document.getElementById('statRoles').textContent = ROLES.length;
+  document.getElementById('statTools').textContent = TOOLS.length;
+}
+
+function bindEvents() {
+  document.addEventListener('click', event => {
+    const panelBtn = event.target.closest('[data-panel]');
+    if (panelBtn) {
+      setPanel(panelBtn.dataset.panel);
+      return;
+    }
+
+    const jump = event.target.closest('[data-panel-jump]');
+    if (jump) {
+      setPanel(jump.dataset.panelJump);
+      if (jump.dataset.openRoute) {
+        APP.state.selectedRoute = jump.dataset.openRoute;
+        renderRouteCards();
+        openInspector({ title: ROUTES[jump.dataset.openRoute].label, meta: ROUTES[jump.dataset.openRoute].name, html: renderRouteInspector(jump.dataset.openRoute) });
+      }
+      return;
+    }
+
+    const decisionBtn = event.target.closest('[data-decision-step]');
+    if (decisionBtn) {
+      applyDecision(Number(decisionBtn.dataset.decisionStep), decisionBtn.dataset.decisionValue);
+      return;
+    }
+
+    const copyBtn = event.target.closest('[data-copy-route]');
+    if (copyBtn) {
+      copyRoutePlan(copyBtn.dataset.copyRoute);
+      return;
+    }
+
+    const routeBtn = event.target.closest('[data-open-route]');
+    if (routeBtn) {
+      const key = routeBtn.dataset.openRoute;
+      APP.state.selectedRoute = key;
+      renderRouteCards();
+      openInspector({ title: ROUTES[key].label, meta: ROUTES[key].name, html: renderRouteInspector(key) });
+      return;
+    }
+
+    const kubikBtn = event.target.closest('[data-open-kubik]');
+    if (kubikBtn) {
+      const id = kubikBtn.dataset.openKubik;
+      openInspector({ title: id, meta: 'Кубик', html: renderKubikInspector(id) });
+      return;
+    }
+
+    const roleBtn = event.target.closest('[data-open-role]');
+    if (roleBtn) {
+      const code = roleBtn.dataset.openRole;
+      openInspector({ title: code, meta: 'Роль', html: renderRoleInspector(code) });
+      return;
+    }
+
+    const toolBtn = event.target.closest('[data-open-tool]');
+    if (toolBtn) {
+      const name = toolBtn.dataset.openTool;
+      openInspector({ title: name, meta: 'Инструмент', html: renderToolInspector(name) });
+      return;
+    }
+
+    const scenarioBtn = event.target.closest('[data-open-scenario]');
+    if (scenarioBtn) {
+      const id = scenarioBtn.dataset.openScenario;
+      openInspector({ title: id, meta: 'Сценарий', html: renderScenarioInspector(id) });
+      return;
+    }
+
+    const routeFilter = event.target.closest('[data-kubik-route]');
+    if (routeFilter) {
+      APP.state.kubik.route = routeFilter.dataset.kubikRoute;
+      renderRouteFilterPills();
+      renderKubikCatalog();
+      return;
+    }
+
+    const toolFilter = event.target.closest('[data-tool-filter]');
+    if (toolFilter) {
+      APP.state.toolCategory = toolFilter.dataset.toolFilter;
+      renderToolFilters();
+      renderTools();
+      return;
+    }
+
+    const paletteItem = event.target.closest('[data-palette-key]');
+    if (paletteItem) {
+      const item = findSearchItem(paletteItem.dataset.paletteKey);
+      if (item) {
+        closePalette();
+        item.open();
+      }
+      return;
+    }
+
+    const playbookTab = event.target.closest('.playbook-tab');
+    if (playbookTab && !window.htmx) {
+      renderPlaybookFragment(playbookTab.dataset.playbook);
+      return;
+    }
+
+    const focusRoute = event.target.closest('[data-route-focus]');
+    if (focusRoute) {
+      const key = focusRoute.dataset.routeFocus;
+      setPanel('kubiks');
+      APP.state.kubik.route = key;
+      renderRouteFilterPills();
+      renderKubikCatalog();
+      return;
+    }
+
+    if (event.target.closest('#searchOpen')) {
+      openPalette();
+      return;
+    }
+
+    if (event.target.id === 'themeToggle' || event.target.closest('#themeToggle')) {
+      toggleTheme();
+      return;
+    }
+
+    if (event.target.id === 'inspectorClose' || event.target.closest('#inspectorClose')) {
+      closeInspector();
+      return;
+    }
+
+    if (event.target.id === 'paletteOverlay') {
+      closePalette();
+      return;
+    }
+
+    if (event.target.closest('#decisionReset')) {
+      resetDecision();
+      return;
+    }
+
+    if (event.target.closest('#kubikReset')) {
+      APP.state.kubik = { query: '', route: 'all', phase: 'all', role: 'all' };
+      document.getElementById('kubikSearch').value = '';
+      document.getElementById('phaseFilter').value = 'all';
+      document.getElementById('roleFilter').value = 'all';
+      renderRouteFilterPills();
+      renderKubikCatalog();
+      return;
+    }
+
+    if (event.target.closest('#decisionOpenRoute')) {
+      setPanel('routes');
+      const key = recommendedRoute();
+      APP.state.selectedRoute = key;
+      renderRouteCards();
+      openInspector({ title: ROUTES[key].label, meta: ROUTES[key].name, html: renderRouteInspector(key) });
+      return;
+    }
+  });
+
+  document.addEventListener('input', event => {
+    if (event.target.id === 'kubikSearch') {
+      APP.state.kubik.query = event.target.value.trim();
+      renderKubikCatalog();
+      return;
+    }
+    if (event.target.id === 'phaseFilter') {
+      APP.state.kubik.phase = event.target.value;
+      renderKubikCatalog();
+      return;
+    }
+    if (event.target.id === 'roleFilter') {
+      APP.state.kubik.role = event.target.value;
+      renderKubikCatalog();
+      return;
+    }
+    if (event.target.id === 'paletteInput') {
+      APP.state.paletteIndex = 0;
+      renderPaletteResults(event.target.value);
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === '/' && !event.metaKey && !event.ctrlKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+      event.preventDefault();
+      openPalette();
+      return;
+    }
+    if (event.key === 'Escape') {
+      closePalette();
+      closeInspector();
+      return;
+    }
+    if (/^[1-8]$/.test(event.key) && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+      const target = PANEL_ORDER[Number(event.key) - 1];
+      if (target) {
+        setPanel(target);
+      }
+    }
+
+    if (document.body.classList.contains('palette-open')) {
+      const visibleItems = [...document.querySelectorAll('.palette-item')];
+      if (!visibleItems.length) return;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        APP.state.paletteIndex = (APP.state.paletteIndex + 1) % visibleItems.length;
+        visibleItems.forEach((el, idx) => el.classList.toggle('active', idx === APP.state.paletteIndex));
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        APP.state.paletteIndex = (APP.state.paletteIndex - 1 + visibleItems.length) % visibleItems.length;
+        visibleItems.forEach((el, idx) => el.classList.toggle('active', idx === APP.state.paletteIndex));
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const active = visibleItems[APP.state.paletteIndex];
+        if (active) {
+          const item = findSearchItem(active.dataset.paletteKey);
+          if (item) {
+            closePalette();
+            item.open();
+          }
+        }
+      }
+    }
+  });
+
+  window.addEventListener('hashchange', syncHashPanel);
+
+  document.body.addEventListener('htmx:afterSwap', event => {
+    if (event.target.id === 'playbookSwap') {
+      const btn = document.querySelector('.playbook-tab.active') || document.querySelector('.playbook-tab');
+      if (btn) APP.state.playbook = btn.dataset.playbook;
+      reveal(document.getElementById('playbookSwap'));
+    }
+  });
+
+  document.body.addEventListener('htmx:beforeRequest', event => {
+    const btn = event.detail.elt?.closest?.('.playbook-tab') || event.detail.elt;
+    if (btn?.classList?.contains('playbook-tab')) {
+      document.querySelectorAll('.playbook-tab').forEach(node => node.classList.toggle('active', node === btn));
+    }
+  });
+
+  document.body.addEventListener('htmx:responseError', event => {
+    const btn = event.detail.elt?.closest?.('.playbook-tab') || event.detail.elt;
+    if (btn?.classList?.contains('playbook-tab')) {
+      renderPlaybookFragment(btn.dataset.playbook);
+    }
+  });
+}
+
+function init() {
+  setTheme(APP.state.theme);
+  initStats();
+  populateRoleFilter();
+  renderDecisionSteps();
+  renderDecisionPreview();
+  renderRouteCards();
+  renderRouteCompareTable();
+  renderRouteMatrix();
+  renderRouteFilterPills();
+  renderKubikCatalog();
+  renderRoleHeatmap();
+  renderRoles();
+  renderToolFilters();
+  renderTools();
+  renderScenarios();
+  renderPrinciples();
+  renderPlaybookFragment(APP.state.playbook);
+  wirePlaybookHtmx();
+  buildSearchIndex();
+  bindEvents();
+  document.getElementById('inspectorBody').innerHTML = INSPECTOR_WELCOME;
+  syncHashPanel();
+  reveal(document);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+  </script>
+
+<script id="refx-script">
+(function(){
+  const CONFIG = {"id": "workflow_os_v2", "label": "Workflow OS v2", "toc": [{"panel": "overview", "label": "Обзор", "desc": "Hero, UX-архитектура, системная сводка", "children": [{"label": "Hero", "selector": "#panel-overview .hero"}, {"label": "UX-архитектура", "selector": "#panel-overview .grid-2"}, {"label": "Сводка системы", "selector": "#panel-overview .section-card:last-of-type"}]}, {"panel": "routes", "label": "Маршруты", "desc": "Помощник выбора, сравнение, матрица", "children": [{"label": "Помощник выбора", "selector": "#decisionSteps"}, {"label": "Рекомендация", "selector": "#decisionPreview"}, {"label": "Route cards", "selector": "#routeGrid"}, {"label": "Compare", "selector": "#routeCompareTable"}, {"label": "Matrix", "selector": "#routeMatrixTable"}]}, {"panel": "kubiks", "label": "Кубики", "desc": "Фильтры и каталог", "children": [{"label": "Фильтры", "selector": "#kubikSearch"}, {"label": "Каталог", "selector": "#kubikCatalog"}]}, {"panel": "playbook", "label": "Playbook", "desc": "Артефакты, cadence, quality, risks", "children": [{"label": "Tabs", "selector": "#playbookTabs"}, {"label": "Content", "selector": "#playbookSwap"}]}, {"panel": "roles", "label": "Роли", "desc": "Heatmap и handoff", "children": [{"label": "Heatmap", "selector": "#roleHeatmap"}, {"label": "Cards", "selector": "#roleGrid"}]}, {"panel": "tools", "label": "Инструменты", "desc": "Стек экранов и тулов", "children": [{"label": "Filters", "selector": "#toolFilterPills"}, {"label": "Catalog", "selector": "#toolGrid"}]}, {"panel": "scenarios", "label": "Сценарии", "desc": "Use cases и примеры применения", "children": [{"label": "Scenarios", "selector": "#scenarioGrid"}]}, {"panel": "principles", "label": "Принципы", "desc": "Культура, диагностика, словарь", "children": [{"label": "Principles", "selector": "#principlesGrid"}, {"label": "Glossary", "selector": "#glossaryTable"}]}], "first_panel": "overview"};
+  const STORAGE = CONFIG.id + '_refined_ui';
+  const DEFAULTS = {theme:'auto', font:'system', scale:96, density:'compact', accent:'blue', radius:14};
+  const THEME_PRESETS = {
+    dark: {bg:'#0b1020', surface:'#111827', surface2:'#172033', text:'#eef4ff', text2:'#8ea0bd', border:'#233147'},
+    light: {bg:'#f6f8fc', surface:'#ffffff', surface2:'#eff3f9', text:'#132238', text2:'#64748b', border:'#d9e2ef'},
+    auto: null
+  };
+  const FONT_PRESETS = {
+    system:'-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif',
+    rounded:'ui-rounded,"SF Pro Rounded","Segoe UI",system-ui,sans-serif',
+    serif:'"Iowan Old Style",Georgia,ui-serif,serif',
+    mono:'"SF Mono","Cascadia Code","JetBrains Mono",ui-monospace,monospace'
+  };
+  const ACCENT_PRESETS = {
+    blue:'#6ea8ff',
+    violet:'#b794f6',
+    emerald:'#34d399',
+    amber:'#f59e0b',
+    graphite:'#a8b3cf'
+  };
+  const DENSITY_PRESETS = {
+    compact: .88,
+    cozy: .96,
+    airy: 1.06
+  };
+
+  function qs(sel, root=document){ return root.querySelector(sel); }
+  function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
+  function applyTheme(theme){
+    const chosen = theme === 'auto' ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme;
+    const p = THEME_PRESETS[chosen];
+    if(!p) return;
+    const r = document.documentElement.style;
+    r.setProperty('--bg', p.bg);
+    r.setProperty('--surface', p.surface);
+    r.setProperty('--surface2', p.surface2);
+    r.setProperty('--text', p.text);
+    r.setProperty('--text2', p.text2);
+    r.setProperty('--border', p.border);
+    document.body.dataset.refxTheme = chosen;
+  }
+  function loadSettings(){
+    try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(STORAGE) || '{}')); }
+    catch(e){ return Object.assign({}, DEFAULTS); }
+  }
+  function saveSettings(state){ localStorage.setItem(STORAGE, JSON.stringify(state)); }
+  const STATE = loadSettings();
+
+  function applySettings(){
+    document.body.classList.add('refined-ui');
+    const root = document.documentElement.style;
+    root.setProperty('--refx-font-family', FONT_PRESETS[STATE.font] || FONT_PRESETS.system);
+    root.setProperty('--refx-font-scale', (Math.max(88, Math.min(116, Number(STATE.scale)||96)) / 100).toString());
+    root.setProperty('--refx-density', (DENSITY_PRESETS[STATE.density] || DENSITY_PRESETS.compact).toString());
+    root.setProperty('--refx-accent', ACCENT_PRESETS[STATE.accent] || ACCENT_PRESETS.blue);
+    root.setProperty('--accent', ACCENT_PRESETS[STATE.accent] || ACCENT_PRESETS.blue);
+    root.setProperty('--refx-radius', (Number(STATE.radius) || 14) + 'px');
+    applyTheme(STATE.theme);
+    syncSettingsUI();
+    saveSettings(STATE);
+  }
+
+  function activatePanel(panelId){
+    if(panelId === 'settings'){ openSheet('settings'); return; }
+    try{
+      if(typeof setPanel === 'function'){ setPanel(panelId); return; }
+    }catch(e){}
+    try{
+      if(typeof switchPanel === 'function'){ switchPanel(panelId); return; }
+    }catch(e){}
+    const btn =
+      qs(`[data-panel="${panelId}"]`) ||
+      qs(`[data-tab="${panelId}"]`) ||
+      qs(`[data-nav="${panelId}"]`) ||
+      qs(`.tab[data-tab="${panelId}"]`) ||
+      qs(`.nav-pill[data-panel="${panelId}"]`);
+    if(btn){ btn.click(); return; }
+    qsa('.panel').forEach(p=>p.classList.remove('active'));
+    const panel = qs('#panel-' + panelId);
+    if(panel) panel.classList.add('active');
+  }
+
+  function ensureAnchor(selector, fallbackId){
+    if(!selector) return null;
+    let el = null;
+    try { el = qs(selector); } catch(e) {}
+    if(!el) return null;
+    if(!el.id) el.id = fallbackId;
+    return '#' + el.id;
+  }
+
+  function normalizeToc(){
+    CONFIG.toc.forEach((item, idx) => {
+      item.index = idx + 1;
+      item.anchor = '#panel-' + item.panel;
+      if(item.children){
+        item.children.forEach((child, cIdx) => {
+          const anchor = ensureAnchor(child.selector, `refx-${CONFIG.id}-${item.panel}-${cIdx+1}`);
+          if(anchor) child.anchor = anchor;
+        });
+      }
+    });
+  }
+
+  function buildTocCard(){
+    const panel = qs('#panel-' + CONFIG.first_panel);
+    if(!panel || qs('#refx-toc-card')) return;
+    const card = document.createElement('article');
+    card.className = 'card refx-toc-card';
+    card.id = 'refx-toc-card';
+    card.innerHTML = `
+      <div class="refx-head">
+        <div>
+          <h3>Table of Contents · ${CONFIG.label}</h3>
+          <p>Короткий ориентир по структуре файла. Чтобы не искать глазами по корпоративным джунглям.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <span class="refx-pill">${CONFIG.toc.length} разделов</span>
+          <button class="refx-reset" id="refx-open-settings-inline">Настройки</button>
+        </div>
+      </div>
+      <div class="refx-toc-grid">
+        ${CONFIG.toc.map(item => `
+          <button class="refx-toc-item" data-refx-go="${item.panel}" type="button">
+            <strong><span class="idx">${item.index}</span>${item.label}</strong>
+            <p>${item.desc || ''}</p>
+          </button>
+        `).join('')}
+      </div>`;
+    panel.insertAdjacentElement('afterbegin', card);
+    qs('#refx-open-settings-inline')?.addEventListener('click', ()=>openSheet('settings'));
+    qsa('[data-refx-go]', card).forEach(btn => btn.addEventListener('click', ()=>goTo(btn.dataset.refxGo)));
+  }
+
+  function buildSheets(){
+    if(qs('#refx-dock')) return;
+    const dock = document.createElement('div');
+    dock.id = 'refx-dock';
+    dock.className = 'refx-dock';
+    dock.innerHTML = `
+      <button class="refx-fab" id="refx-toc-fab" type="button"><span class="dot"></span><span>Оглавление</span></button>
+      <button class="refx-fab" id="refx-settings-fab" type="button"><span>Аа</span><span>Настройки</span></button>`;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'refx-sheet-backdrop';
+    backdrop.id = 'refx-backdrop';
+    const toc = document.createElement('aside');
+    toc.className = 'refx-sheet left';
+    toc.id = 'refx-toc-sheet';
+    toc.innerHTML = `
+      <div class="refx-sheet-head">
+        <div><h3>Оглавление</h3><p>${CONFIG.label} · все разделы и подпункты в одном месте</p></div>
+        <button class="refx-close" type="button" data-refx-close>&times;</button>
+      </div>
+      <div class="refx-sheet-body">
+        <div class="refx-toc-list" id="refx-toc-list"></div>
+      </div>`;
+    const settings = document.createElement('aside');
+    settings.className = 'refx-sheet right';
+    settings.id = 'refx-settings-sheet';
+    settings.innerHTML = `
+      <div class="refx-sheet-head">
+        <div><h3>Настройки дизайна</h3><p>Шрифт, тема, размер, плотность и акцент в одной вкладке. Как ни странно, это реально полезно.</p></div>
+        <button class="refx-close" type="button" data-refx-close>&times;</button>
+      </div>
+      <div class="refx-sheet-body">
+        <div class="refx-settings-grid">
+          <div class="refx-field">
+            <h4>Тема</h4>
+            <div class="refx-segment" id="refx-theme-segment"></div>
+          </div>
+          <div class="refx-field">
+            <h4>Шрифт</h4>
+            <div class="refx-segment" id="refx-font-segment"></div>
+          </div>
+          <div class="refx-field">
+            <h4>Размер шрифта</h4>
+            <div class="refx-range"><input id="refx-scale" type="range" min="88" max="116" step="1"><div class="refx-note" id="refx-scale-note"></div></div>
+          </div>
+          <div class="refx-field">
+            <h4>Плотность</h4>
+            <div class="refx-segment" id="refx-density-segment"></div>
+          </div>
+          <div class="refx-field">
+            <h4>Акцент</h4>
+            <div class="refx-swatch-row" id="refx-accent-row"></div>
+          </div>
+          <div class="refx-field">
+            <h4>Скругление</h4>
+            <div class="refx-range"><input id="refx-radius" type="range" min="10" max="22" step="1"><div class="refx-note" id="refx-radius-note"></div></div>
+          </div>
+          <div class="refx-field">
+            <h4>Сброс</h4>
+            <button class="refx-reset" id="refx-reset-all" type="button">Вернуть компактный дефолт</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.append(dock, backdrop, toc, settings);
+    qs('#refx-toc-fab').addEventListener('click', ()=>openSheet('toc'));
+    qs('#refx-settings-fab').addEventListener('click', ()=>openSheet('settings'));
+    qsa('[data-refx-close]').forEach(btn=>btn.addEventListener('click', closeSheets));
+    backdrop.addEventListener('click', closeSheets);
+    document.addEventListener('keydown', e => { if(e.key==='Escape') closeSheets(); });
+  }
+
+  function buildTocDrawer(){
+    const wrap = qs('#refx-toc-list');
+    if(!wrap) return;
+    wrap.innerHTML = CONFIG.toc.map(item => `
+      <div class="refx-toc-block">
+        <div class="refx-toc-top" data-panel-go="${item.panel}">
+          <strong>${item.index}. ${item.label}</strong>
+          <span>${item.desc || ''}</span>
+        </div>
+        ${item.children && item.children.length ? `
+          <div class="refx-toc-sub">
+            ${item.children.filter(ch => ch.anchor).map(ch => `<button type="button" data-sub-go="${item.panel}|${ch.anchor}">${ch.label}</button>`).join('')}
+            ${item.panel === 'settings' ? `<button type="button" data-settings-go="1">Открыть настройки</button>` : ''}
+          </div>` : (item.panel === 'settings' ? `<div class="refx-toc-sub"><button type="button" data-settings-go="1">Открыть настройки</button></div>` : '')}
+      </div>`).join('');
+    qsa('[data-panel-go]', wrap).forEach(el => el.addEventListener('click', ()=>{ goTo(el.dataset.panelGo); closeSheets(); }));
+    qsa('[data-sub-go]', wrap).forEach(el => el.addEventListener('click', ()=>{
+      const [panel, anchor] = el.dataset.subGo.split('|');
+      goTo(panel, anchor);
+      closeSheets();
+    }));
+    qsa('[data-settings-go]', wrap).forEach(el => el.addEventListener('click', ()=>openSheet('settings')));
+  }
+
+  function openSheet(which){
+    closeSheets();
+    qs('#refx-backdrop').classList.add('show');
+    if(which === 'toc') qs('#refx-toc-sheet').classList.add('show');
+    if(which === 'settings') qs('#refx-settings-sheet').classList.add('show');
+  }
+  function closeSheets(){
+    qs('#refx-backdrop')?.classList.remove('show');
+    qs('#refx-toc-sheet')?.classList.remove('show');
+    qs('#refx-settings-sheet')?.classList.remove('show');
+  }
+
+  function goTo(panel, anchor){
+    if(panel === 'settings'){ openSheet('settings'); return; }
+    activatePanel(panel);
+    window.setTimeout(() => {
+      const target = anchor ? qs(anchor) : qs('#panel-' + panel);
+      if(target){
+        target.scrollIntoView({behavior:'smooth', block:'start'});
+      }
+    }, 90);
+  }
+
+  function makeSegment(targetId, items, valueKey, onSelect){
+    const root = qs('#' + targetId);
+    if(!root) return;
+    root.innerHTML = items.map(item => `<button type="button" data-value="${item.value}" class="${STATE[valueKey]===item.value?'active':''}">${item.label}</button>`).join('');
+    qsa('button', root).forEach(btn => btn.addEventListener('click', ()=>{
+      STATE[valueKey] = btn.dataset.value;
+      applySettings();
+    }));
+  }
+
+  function buildSettingsUI(){
+    makeSegment('refx-theme-segment', [
+      {value:'auto',label:'Auto'},
+      {value:'dark',label:'Dark'},
+      {value:'light',label:'Light'}
+    ], 'theme');
+    makeSegment('refx-font-segment', [
+      {value:'system',label:'System'},
+      {value:'rounded',label:'Rounded'},
+      {value:'serif',label:'Serif'},
+      {value:'mono',label:'Mono'}
+    ], 'font');
+    makeSegment('refx-density-segment', [
+      {value:'compact',label:'Compact'},
+      {value:'cozy',label:'Cozy'},
+      {value:'airy',label:'Airy'}
+    ], 'density');
+    const scale = qs('#refx-scale'), radius = qs('#refx-radius');
+    if(scale){
+      scale.value = STATE.scale;
+      scale.addEventListener('input', ()=>{ STATE.scale = Number(scale.value); applySettings(); });
+    }
+    if(radius){
+      radius.value = STATE.radius;
+      radius.addEventListener('input', ()=>{ STATE.radius = Number(radius.value); applySettings(); });
+    }
+    const accentRow = qs('#refx-accent-row');
+    if(accentRow){
+      accentRow.innerHTML = Object.entries(ACCENT_PRESETS).map(([key,val]) => `<button type="button" class="refx-swatch ${STATE.accent===key?'active':''}" data-accent="${key}" style="background:${val}"></button>`).join('');
+      qsa('[data-accent]', accentRow).forEach(btn => btn.addEventListener('click', ()=>{ STATE.accent = btn.dataset.accent; applySettings(); }));
+    }
+    qs('#refx-reset-all')?.addEventListener('click', ()=>{ Object.assign(STATE, DEFAULTS); applySettings(); });
+    syncSettingsUI();
+  }
+
+  function syncSettingsUI(){
+    qsa('#refx-theme-segment button').forEach(btn => btn.classList.toggle('active', btn.dataset.value===STATE.theme));
+    qsa('#refx-font-segment button').forEach(btn => btn.classList.toggle('active', btn.dataset.value===STATE.font));
+    qsa('#refx-density-segment button').forEach(btn => btn.classList.toggle('active', btn.dataset.value===STATE.density));
+    qsa('#refx-accent-row [data-accent]').forEach(btn => btn.classList.toggle('active', btn.dataset.accent===STATE.accent));
+    if(qs('#refx-scale')) qs('#refx-scale').value = STATE.scale;
+    if(qs('#refx-radius')) qs('#refx-radius').value = STATE.radius;
+    if(qs('#refx-scale-note')) qs('#refx-scale-note').textContent = `Текущий scale: ${STATE.scale}%`;
+    if(qs('#refx-radius-note')) qs('#refx-radius-note').textContent = `Текущий radius: ${STATE.radius}px`;
+  }
+
+  function patchTitlesAndLabels(){
+    if(CONFIG.id === 'workflow_os_v3'){
+      const h = qs('#route-chooser h2'); if(h) h.textContent = 'Decision tree / Route chooser';
+      const s = qs('#surface-inventory h2'); if(s) s.textContent = 'Инструменты / экраны / inventory';
+      const sb = qs('[data-panel="simulator"]'); if(sb) sb.innerHTML = sb.innerHTML.replace('Simulator', 'Simulator');
+    }
+  }
+
+  function injectV3Coverage(){
+    if(CONFIG.id !== 'workflow_os_v3') return;
+    if(qs('#legacy-coverage')) return;
+    const story = qs('#story');
+    if(story){
+      const coverage = document.createElement('article');
+      coverage.className = 'card';
+      coverage.id = 'legacy-coverage';
+      coverage.innerHTML = `
+        <div class="section-head">
+          <div>
+            <h2>Legacy coverage / ничего не потеряно</h2>
+            <p>Явно возвращаю в v3 то, что могло раствориться после перехода от каталога к executive shell: зависимости, quality и более прямую карту экранов.</p>
+          </div>
+        </div>
+        <div class="refx-legacy-grid">
+          <div class="refx-legacy-card"><span class="status direct">direct</span><strong>Кубики, маршруты, роли</strong><p>Ядро конструктора сохранено как было, без ампутаций ради красоты.</p></div>
+          <div class="refx-legacy-card"><span class="status merged">merged</span><strong>Decision tree</strong><p>Переехал в Routes как Route chooser, чтобы выбор и сравнение маршрутов жили рядом.</p></div>
+          <div class="refx-legacy-card"><span class="status restored">restored</span><strong>Dependencies graph</strong><p>Возвращён как отдельный subsection Routes, чтобы связи между кубиками были видны явно.</p></div>
+          <div class="refx-legacy-card"><span class="status merged">merged</span><strong>Tools</strong><p>Не потеряны: теперь живут в Surfaces как инструментально-экранный inventory по контурам.</p></div>
+          <div class="refx-legacy-card"><span class="status restored">restored</span><strong>Quality</strong><p>Вынесен в явные quality gates внутри Playbook, а не прячется между release и risks.</p></div>
+          <div class="refx-legacy-card"><span class="status expanded">expanded</span><strong>Examples / Scenarios</strong><p>Расширены до Journeys + Simulator Scenarios + object life-cycles.</p></div>
+        </div>`;
+      story.insertAdjacentElement('afterend', coverage);
+    }
+
+    const routeMatrix = qs('#route-matrix');
+    if(routeMatrix && !qs('#route-deps')){
+      const deps = document.createElement('article');
+      deps.className = 'card';
+      deps.id = 'route-deps';
+      deps.innerHTML = `
+        <div class="section-head">
+          <div>
+            <h2>Dependencies / граф связей</h2>
+            <p>Возвращён явно. Это как раз тот экран, который было бы глупо потерять при переходе в narrative-режим.</p>
+          </div>
+        </div>
+        <div class="refx-dep-controls" id="refx-dep-controls"></div>
+        <div class="refx-dep-graph" id="refx-dep-graph"></div>`;
+      routeMatrix.insertAdjacentElement('afterend', deps);
+      renderV3Deps('all');
+    }
+
+    const playBody = qs('#playbook-body');
+    if(playBody && !qs('#quality-legacy')){
+      const quality = document.createElement('article');
+      quality.className = 'card';
+      quality.id = 'quality-legacy';
+      quality.innerHTML = `
+        <div class="section-head">
+          <div>
+            <h2>Quality gates / наследие quality section</h2>
+            <p>В v3 quality не должен исчезать под общим словом «playbook». Поэтому фиксирую отдельный, читаемый блок.</p>
+          </div>
+        </div>
+        <div class="refx-quality-grid">
+          <div class="refx-quality-card"><strong><span class="num">1</span>Соглашения об обмене</strong><p>Регулярность поставки и соблюдение договорённостей. Сигнал на эскалацию, если контур живёт «как получится».</p></div>
+          <div class="refx-quality-card"><strong><span class="num">2</span>Структуры данных</strong><p>Схемы, типы, форматы и ожидания. Не та часть, которую стоит выяснять уже после релиза.</p></div>
+          <div class="refx-quality-card"><strong><span class="num">3</span>Эвристический контроль</strong><p>Пропуски, выбросы, дубляжи, странные скачки и поведенческие аномалии.</p></div>
+          <div class="refx-quality-card"><strong><span class="num">4</span>Контроль НСИ</strong><p>Классификаторы, справочники и нормативно-справочная целостность. Самое скучное и поэтому самое часто забываемое.</p></div>
+        </div>
+        <div class="refx-flow">
+          <span class="box">Модель данных</span><span class="arrow">→</span>
+          <span class="box">Поставка</span><span class="arrow">→</span>
+          <span class="box">Перевалка</span><span class="arrow">→</span>
+          <span class="box">Процессинг</span><span class="arrow">→</span>
+          <span class="box">Хранение</span><span class="arrow">→</span>
+          <span class="box">Дистрибуция</span>
+        </div>`;
+      playBody.insertAdjacentElement('afterend', quality);
+    }
+  }
+
+  const V3_DEPS = [["К-01", "К-02"], ["К-01", "К-08"], ["К-01", "К-12"], ["К-01", "К-05"], ["К-02", "К-03"], ["К-02", "К-04"], ["К-03", "К-05"], ["К-03", "К-06"], ["К-04", "К-07"], ["К-05", "К-07"], ["К-06", "К-07"], ["К-07", "К-08"], ["К-07", "К-09"], ["К-08", "К-09"], ["К-08", "К-12"], ["К-09", "К-10"], ["К-09", "К-11"], ["К-10", "К-11"], ["К-11", "К-12"], ["К-11", "К-15"], ["К-12", "К-13"], ["К-12", "К-18"], ["К-13", "К-14"], ["К-14", "К-15"], ["К-15", "К-16"], ["К-16", "К-17"], ["К-16", "К-18"], ["К-17", "К-18"], ["К-18", "К-19"], ["К-19", "К-20"], ["К-20", "К-21"]];
+
+  function renderV3Deps(routeKey){
+    if(CONFIG.id !== 'workflow_os_v3') return;
+    const controls = qs('#refx-dep-controls');
+    const graph = qs('#refx-dep-graph');
+    if(!controls || !graph || typeof KUBIKS === 'undefined' || typeof ROUTES === 'undefined') return;
+    const routeKeys = ['all', ...Object.keys(ROUTES)];
+    controls.innerHTML = routeKeys.map(key => {
+      const label = key === 'all' ? 'Все' : (ROUTES[key].name || key);
+      const color = key === 'all' ? 'var(--text)' : (ROUTES[key].colorHex || 'var(--refx-accent)');
+      return `<button type="button" class="${key===routeKey?'active':''}" data-dep-route="${key}" style="color:${key==='all'?'inherit':color}">${label}</button>`;
+    }).join('');
+    qsa('[data-dep-route]', controls).forEach(btn => btn.addEventListener('click', ()=>renderV3Deps(btn.dataset.depRoute)));
+    const phaseBuckets = {};
+    KUBIKS.forEach(k => { (phaseBuckets[k.phase] ||= []).push(k); });
+    const nodeW = 84, nodeH = 36, gapX = 18, gapY = 66, padX = 40, padY = 30;
+    let maxRow = 0;
+    Object.values(phaseBuckets).forEach(row => { maxRow = Math.max(maxRow, row.length); });
+    const width = Math.max(860, maxRow * (nodeW + gapX) + padX * 2);
+    const positions = {};
+    Object.keys(phaseBuckets).sort((a,b)=>Number(a)-Number(b)).forEach((phase, idx) => {
+      const row = phaseBuckets[phase];
+      const rowWidth = row.length * (nodeW + gapX) - gapX;
+      const startX = (width - rowWidth) / 2;
+      row.forEach((k, i) => {
+        positions[k.id] = {x:startX + i*(nodeW+gapX)+nodeW/2, y:padY + idx*(nodeH+gapY)+nodeH/2, phase:Number(phase)};
+      });
+    });
+    const height = padY*2 + Object.keys(phaseBuckets).length*(nodeH+gapY);
+    const highlight = routeKey !== 'all' && ROUTES[routeKey] ? new Set(ROUTES[routeKey].blocks) : null;
+    let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="font-family:var(--refx-font-family)"><defs><marker id="refx-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#64748b"/></marker><marker id="refx-arrow-hi" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="${ACCENT_PRESETS[STATE.accent] || ACCENT_PRESETS.blue}"/></marker></defs>`;
+    V3_DEPS.forEach(([from,to]) => {
+      const a = positions[from], b = positions[to];
+      if(!a || !b) return;
+      const isHi = highlight ? (highlight.has(from) && highlight.has(to)) : false;
+      const isDim = highlight ? !isHi : false;
+      svg += `<line x1="${a.x}" y1="${a.y + nodeH/2}" x2="${b.x}" y2="${b.y - nodeH/2}" stroke="${isHi ? (ACCENT_PRESETS[STATE.accent] || ACCENT_PRESETS.blue) : '#64748b'}" stroke-width="${isHi?2:1.2}" opacity="${isDim ? .2 : 1}" marker-end="${isHi?'url(#refx-arrow-hi)':'url(#refx-arrow)'}"/>`;
+    });
+    const phaseColors = {1:'#f97316',2:'#06b6d4',3:'#8b5cf6',4:'#f59e0b',5:'#10b981'};
+    KUBIKS.forEach(k => {
+      const pos = positions[k.id];
+      if(!pos) return;
+      const color = phaseColors[pos.phase] || '#94a3b8';
+      const isDim = highlight ? !highlight.has(k.id) : false;
+      svg += `<g data-k="${k.id}" style="cursor:pointer" opacity="${isDim ? .24 : 1}">
+        <rect x="${pos.x - nodeW/2}" y="${pos.y - nodeH/2}" width="${nodeW}" height="${nodeH}" rx="10" fill="${color}16" stroke="${color}" stroke-width="1.4"/>
+        <text x="${pos.x}" y="${pos.y + 1}" fill="${color}" font-size="12" font-weight="700" text-anchor="middle" dominant-baseline="middle">${k.id}</text>
+      </g>`;
+    });
+    svg += `</svg>`;
+    graph.innerHTML = svg;
+    qsa('[data-k]', graph).forEach(node => node.addEventListener('click', ()=>{ if(typeof openKubik === 'function') openKubik(node.dataset.k); }));
+  }
+
+  function init(){
+    normalizeToc();
+    buildSheets();
+    buildTocCard();
+    buildTocDrawer();
+    buildSettingsUI();
+    patchTitlesAndLabels();
+    injectV3Coverage();
+    applySettings();
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    setTimeout(init, 30);
+  }
+})();
+</script>
+
+</body>
+</html>

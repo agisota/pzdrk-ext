@@ -15,6 +15,7 @@ let summaryTokenCount = 0;
 let actionFlyout = null;
 let noteResizeObserver = null;
 let layoutScheduled = false;
+let noteZCounter = 2147483640;
 
 // Cached settings snapshot (best-effort)
 let runtimeSettings = null;
@@ -36,7 +37,6 @@ const noteChats = new Map();
 const collapseTimers = new WeakMap();
 
 // API Keys
-const DEFAULT_GROQ_KEY = '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';
 const DEFAULT_EXA_KEY = 'bebe84f2-7740-4b67-b9d6-91edbecb080f';
 const XAI_VOICE_KEY = 'xai-GIuMtBSOO3KnHNYgmd69NFdzLIDCuo6ZjJ23q3Sbe3fjEtbHLte15KHNaB27k88O5E4v7k3CPSckQMxf';
 const SLACK_WEBHOOK = 'https://hooks.slack.com/triggers/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';
@@ -57,8 +57,36 @@ function estimateTokens(text) {
 // ============ CACHE ============
 
 // Bump to invalidate old summaries when prompts/layout change
-const CACHE_PREFIX = 'pzdrk_cache_v3_';
+const CACHE_PREFIX = 'pzdrk_cache_v4_';
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_TARGET_MAX_OUTPUT_TOKENS = 8192;
+const DEFAULT_MAX_PARALLEL_REQUESTS = 8;
+const MAP_REDUCE_THRESHOLD_TOKENS = 4200;
+const DIRECT_SUMMARY_INPUT_CHARS = 6000;
+const SECTION_ENRICH_INPUT_CHARS = 4800;
+const COMMAND_CONTEXT_INPUT_CHARS = 4800;
+
+function clipPromptInput(text, maxChars) {
+  const limit = Math.max(0, Math.round(Number(maxChars) || 0));
+  return String(text || '').substring(0, limit);
+}
+
+function getTaskMaxTokens(settings, desired, floor = 128) {
+  const rawTarget = Number(settings?.targetMaxOutputTokens);
+  const ceiling = Number.isFinite(rawTarget)
+    ? Math.max(floor, Math.min(DEFAULT_TARGET_MAX_OUTPUT_TOKENS, Math.round(rawTarget)))
+    : DEFAULT_TARGET_MAX_OUTPUT_TOKENS;
+  return Math.max(floor, Math.min(Math.round(Number(desired) || floor), ceiling));
+}
+
+function getAdaptiveParallelLimit(settings, desired = DEFAULT_MAX_PARALLEL_REQUESTS, cap = DEFAULT_MAX_PARALLEL_REQUESTS, floor = 1) {
+  const configured = Number(settings?.maxParallelRequests);
+  const baseline = Number.isFinite(configured)
+    ? Math.max(floor, Math.round(configured))
+    : Math.max(floor, Math.round(Number(desired) || DEFAULT_MAX_PARALLEL_REQUESTS));
+  const hardCap = Math.max(floor, Math.round(Number(cap) || DEFAULT_MAX_PARALLEL_REQUESTS));
+  return Math.max(floor, Math.min(baseline, hardCap));
+}
 
 function getCacheKey(url) { return CACHE_PREFIX + btoa(url).substring(0, 50); }
 
@@ -74,62 +102,101 @@ function getCache(url) {
 }
 
 function setCache(url, summary, format = 'markdown') {
-  try { localStorage.setItem(getCacheKey(url), JSON.stringify({ format, summary, timestamp: Date.now(), url })); } catch (e) {}
+  try { localStorage.setItem(getCacheKey(url), JSON.stringify({ format, summary, timestamp: Date.now(), url })); } catch (e) { }
 }
 
 // ============ MONDAY-STYLE PERSONA (applies to ALL outputs) ============
 
-const MONDAY_PERSONA = `Ты — саркастичный AI-комментатор в стиле Monday (умный сухой сарказм).
-Тон: спокойный, профессиональный, лаконичный.
-Сарказм: точечно (0–1 короткая фраза на ответ), без театра.
-Запрещено: "*вздох*", нытьё, истерика, лишние эмоции.
-Доказательно: отделяй факты от предположений, отмечай уровень уверенности.
-Язык: простой русский.`;
+const MONDAY_PERSONA = `Ты — sharp operator-assistant в духе Monday: умный, сухой, доказательный.
+Тон: спокойный, профессиональный, плотный.
+Сарказм: максимум 0-1 короткая реплика, только если она повышает ясность.
+Запрещено: театральность, истерика, самодовольство, маркетинговый пафос.
+Доказательно: отделяй факт от inference, отмечай уверенность и пробелы.
+Язык: простой сильный русский без канцелярита.`;
+
+const PRO_REASONING_RULES = `ОПЕРАЦИОННЫЕ ПРАВИЛА:
+- Сначала восстанавливай цель пользователя и практический смысл страницы.
+- Разделяй: факт / интерпретация / гипотеза / следующее действие.
+- Избегай generic-советов; предпочитай конкретику, trade-offs, риски, ограничения.
+- Не дублируй одно и то же разными словами; каждый блок должен добавлять новую ценность.
+- Если входных данных не хватает, явно укажи пробел и предложи способ проверки.
+- Если есть числа, компании, продукты, роли, процессы, архитектурные выборы — вытаскивай их явно.
+- Думай как senior analyst / architect / operator, а не как маркетинговый копирайтер.`;
+
+const OUTPUT_EXPANSION_RULES = `ТРЕБОВАНИЯ К ГЛУБИНЕ:
+- Лучше layered output, чем короткий пересказ: signal -> mechanics -> risks -> action.
+- В каждом крупном ответе ищи second-order effects, failure modes, dependencies и decision criteria.
+- Если материал можно применить, обязательно переходи от смысла к implementation path.
+- Не заканчивай на "это интересно"; доводи до "что делать с этим прямо сейчас".
+- Если тема неоднозначна, показывай competing interpretations и что различает их на практике.`;
+
+const PROMPT_QUALITY_GATES = `КРИТЕРИИ КАЧЕСТВА:
+- Каждый ответ должен иметь понятный артефакт: таблица, план, чеклист, матрица, бриф, сценарий, список проверок или готовый текст.
+- Для действий указывай owner/следующий шаг/критерий готовности, если это применимо по контексту.
+- Отмечай confidence и источник уверенности: прямой факт, inference, гипотеза или внешний пробел.
+- Не смешивай summary и recommendation: сначала сигнал, затем вариант решения, затем риск и проверка.`;
 
 const STYLE_RULES = `${MONDAY_PERSONA}
 
 ФОРМАТ:
-- Структурно, без воды (лучше глубже, чем короче)
+- Структурно, без воды (лучше глубже и полезнее, чем короче и пустее)
 - Оборачивай сущности и термины: [[entity:Название]], [[term:термин]], [[wiki:статья]], [[evidence:факт]], [[action:шаг]]
 - Практика и проверяемые утверждения важнее красивостей
-- Если чего-то не знаешь — так и скажи, предложи как проверить`;
+- Если чего-то не знаешь — так и скажи, предложи как проверить
+
+${PRO_REASONING_RULES}
+
+${OUTPUT_EXPANSION_RULES}
+
+${PROMPT_QUALITY_GATES}`;
 
 // ============ PROMPTS ============
 
 const PROMPTS = {
   summary: `${STYLE_RULES}
 
-Проанализируй страницу. ПОДРОБНЫЙ, консистентный разбор (без воды).
+Сделай подробный operator-grade разбор страницы. Нужен не пересказ, а рабочая карта смысла, риска и применения.
 
 КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:
 {browserContext}
 
 ОБЯЗАТЕЛЬНО:
-- Используй вкладки + историю + pathway, чтобы понять текущую задачу пользователя.
-- Не выдумывай факты. Если не уверен — отметь это и предложи как проверить.
-- Тон: Monday (профессионально, доказательно). Сарказм — максимум 1 короткая фраза.
+- Используй вкладки + историю + pathway, чтобы понять текущую задачу пользователя и зачем ему это сейчас.
+- Не выдумывай факты. Если не уверен — явно помечай как гипотезу / что проверить.
+- Важнее: что это меняет, где сильные сигналы, где слабые места, что делать дальше.
+- Ответ должен помогать принять решение или продолжить работу.
 
 Требования к объёму:
-- 600–1200 слов (если контент большой — ближе к верхней границе)
+- 900–1800 слов (если контент большой — ближе к верхней границе)
 - Тезисы и действия — конкретные и проверяемые.
+- ЛЕВАЯ колонка должна быть написана простым, предметным русским языком.
+- Английские термины, оригинальные названия и англицизмы по возможности не тащи в основную левую подачу; выноси их в правые комментарии/термины.
 
 СТРУКТУРА (ровно эти заголовки, в этом порядке):
+## ✳️ TL;DR
+(2–4 очень коротких пункта: в чём предмет, что главное, зачем это важно прямо сейчас)
 ## 📌 СУТЬ
 (3–6 предложений)
-## 🧭 КАРТА (ToC)
+## 🧭 КАРТА
 (6–14 пунктов: что тут есть)
-## 🎯 КЛЮЧЕВЫЕ ТЕЗИСЫ
-(8–16 буллетов; каждый с новой строки; используй [[entity:]], [[term:]], [[evidence:]], [[action:]])
-## 🔍 ДЕТАЛИ (что важно)
-(2–5 коротких абзацев)
+## ⚙️ МЕХАНИЗМЫ
+(3–6 коротких абзацев: механика, причинно-следственные связи, ограничения, зависимые решения, почему это вообще важно)
+## 🧩 ЗАЧЕМ ЭТО ВАЖНО
+(4–8 пунктов: последствия, смысл, управленческая/практическая ценность, что это меняет)
 ## ⚠️ РИСКИ / НЕЯСНОСТИ
-(3–8 буллетов)
-## 💡 TIL
-(4–10 буллетов формата "Today I learned: ...")
-## 🔗 СВЯЗЬ С КОНТЕКСТОМ
-(2–4 гипотезы: что пользователь делает + почему (из истории/вкладок))
+(3–8 буллетов: ambiguity, missing context, execution risk, incentives, blind spots)
+## 🛠 ПРИМЕНЕНИЕ
+(Для чего это нужно, как использовать, как внедрить, реальные сценарии и примеры интеграции; избегай банальных идей)
+## 🤖 АВТОМАТИЗАЦИИ
+(4–8 конкретных способов автоматизировать работу с этим материалом, процессом или артефактом)
+## ❓ ОТКРЫТЫЕ ВОПРОСЫ
+(3–8 вопросов, которые ещё нельзя честно закрыть без доп. проверки)
+## 🧪 ЧТО ПРОВЕРИТЬ ДАЛЬШЕ
+(3–7 пунктов: какие факты, метрики, документы, конкуренты или эксперименты сейчас критичны)
+## 💡 ВЫЯСНИЛОСЬ
+(4–10 буллетов формата "Выяснилось: ...")
 ## ⚡ ДЕЙСТВИЯ
-(5–10 действий в виде [[action:...]] + 1 строка пояснения под каждым)
+(5–10 действий в виде [[action:...]] + 1 строка пояснения под каждым; балансируй quick wins и более сильные следующие шаги)
 
 ТЕГИ: {tags}`,
 
@@ -145,9 +212,9 @@ const PROMPTS = {
   "title": "Короткий заголовок",
   "sections": [
     {
-      "key": "core", 
-      "emoji": "📌",
-      "label": "СУТЬ",
+      "key": "tldr",
+      "emoji": "✳️",
+      "label": "TL;DR",
       "left": ["..."],
       "right": {
         "commentary": ["..."],
@@ -155,20 +222,43 @@ const PROMPTS = {
         "entities": [{"name": "...", "context": "...", "exaQuery": "..."}],
         "refs": [{"query": "...", "why": "..."}]
       }
+    },
+    {
+      "key": "core",
+      "emoji": "📌",
+      "label": "СУТЬ",
+      "left": ["..."],
+      "right": {
+        "commentary": ["..."],
+        "terms": [],
+        "entities": [],
+        "refs": []
+      }
     }
   ],
-  "til": ["Today I learned: ..."],
-  "actions": ["[[action:...]] — ..."]
+  "til": ["Выяснилось: ..."],
+  "actions": ["[[action:...]] — ..."],
+  "concrete_prompts": [
+    { "title": "Короткое имя следующего запроса", "desc": "Зачем этот запрос нужен", "prompt": "Полный конкретный запрос, готовый к копированию и запуску" }
+  ]
 }
 
 ПРАВИЛА:
-- sections: 6–10 (каждая с emoji + label).
-- left: 4–9 пунктов на секцию (строки без "- "). Делай плотные, проверяемые формулировки.
-- right.commentary: 1–3 коротких абзаца. Комментарии можно выделять *курсивом*.
-- right.terms: 3–6 (включай [[term:...]] внутри definition или commentary при уместности).
-- right.entities: 3–6 (exaQuery должен быть осмысленным поисковым запросом).
-- В текстовых полях (left/commentary/definition/context/actions) помечай важное через [[entity:...]], [[term:...]], [[evidence:...]], [[action:...]].
-- Не выдумывай факты. Если не уверен — отметь и предложи как проверить.
+- sections: 9–14 (каждая с emoji + label).
+- Первые две секции ОБЯЗАНЫ идти так: TL;DR, затем СУТЬ.
+- Секции обязаны покрывать: TL;DR, СУТЬ, КАРТА, МЕХАНИЗМЫ, ЗАЧЕМ ЭТО ВАЖНО, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ ДАЛЬШЕ. Дополнительно можно дать ДЕТАЛИ, СИГНАЛЫ, КОНТЕКСТ, если это реально нужно.
+- left: 4–9 пунктов на секцию (строки без "- "). Делай плотные, проверяемые формулировки с отдельной ценностью в каждом пункте.
+- left: это основная левая колонка. Пиши по-русски, просто, предметно и без канцелярита. Английские слова не используй, если без них можно обойтись.
+- Английские термины, оригинальные названия, продуктовые ярлыки, исходные формулировки и jargon выноси в right.terms и right.commentary, а слева давай понятную русскую формулировку смысла.
+- right.commentary: 2–4 коротких абзаца. Это не повтор left, а углубление: причинно-следственные связи, оговорки, почему это важно, эффекты второго порядка, рамка для решения.
+- right.terms: 4–10. Именно сюда уводи англоязычные термины, оригинальные названия, сокращения и спорные формулировки. Definitions должны помогать понять именно этот материал, а не быть словарными общими фразами.
+- right.entities: 4–8 (exaQuery должен быть осмысленным поисковым запросом, который реально можно отправить в поиск без правки).
+- right.refs: 2–5 референсов на секцию, когда есть смысл проверить спорные места, рынок, людей, технологии или спорные утверждения.
+  - В текстовых полях (left/commentary/definition/context/actions) помечай важное через [[entity:...]], [[term:...]], [[evidence:...]], [[action:...]].
+  - concrete_prompts: 6–8. Каждый запрос должен быть самодостаточным, конкретным и готовым к немедленному запуску без переписывания.
+  - АВТОМАТИЗАЦИИ должны быть практичными: шаблоны автоматизации, проверки, пайплайны, извлечение данных, контрольные вопросы, повторяемые рутины.
+  - Не выдумывай факты. Если не уверен — отметь и предложи как проверить.
+- Не делай все секции одинаковыми: каждая должна отвечать на отдельный вопрос пользователя.
 - Язык: русский. Тон: Monday (профессионально, доказательно). Сарказм ≤ 1 фраза.
 
 ТЕГИ: {tags}`,
@@ -187,14 +277,17 @@ const PROMPTS = {
 }
 
 ПРАВИЛА:
-- right.commentary: 2–5 коротких абзацев (часть можно *курсивом*).
-- terms/entities: по 3–8.
+- right.commentary: 3–6 коротких абзацев (часть можно *курсивом*). Нужны причинно-следственные связи, сильные/слабые сигналы, практические нюансы и последствия для решения.
+- terms/entities: по 4–10.
+- В commentary/terms специально выноси оригинальные англоязычные термины, названия и jargon, чтобы левая колонка оставалась на нормальном русском языке.
 - В commentaries/definitions/contexts активно используй [[entity:...]] / [[term:...]] / [[evidence:...]].
 - Не повторяй left буллеты; дополняй, углубляй, добавляй связи/риски/проверки.
+- refs должны вести к следующему полезному поиску, а не быть шумом.
 - Тон: Monday, без воды.
 `,
 
   generateTitle: `Дай CATCHY заголовок на русском. 2-5 слов. Только заголовок.
+Он должен передавать angle материала, а не быть generic-кликбейтом.
 Контент: {content}`,
 
   pageRanking: `Верни ТОЛЬКО JSON (без markdown/комментариев):
@@ -210,6 +303,11 @@ const PROMPTS = {
   "oneLineValue": "5 слов"
 }
 
+ПРАВИЛА:
+- depth оценивай по интеллектуальной плотности, а не по длине.
+- tags должны быть полезны для последующего поиска/группировки.
+- explanations пиши конкретно, с опорой на контент.
+
 Контент: {content}`,
 
   voiceScript: `${MONDAY_PERSONA}
@@ -221,6 +319,7 @@ const PROMPTS = {
 - Сарказм — сухой и точечный (0–1 фраза).
 - Обязательно: (1) главное, (2) зачем это, (3) bullshit или нет + почему, (4) что делать дальше (3 шага), (5) куда углубляться.
 - Если не уверен — прямо укажи, что проверить.
+- Должно звучать естественно при чтении вслух: короткие фразы, хорошая ритмика, без перегруза.
 - Только обычный текст, без Markdown.
 
 ДАННЫЕ:
@@ -243,48 +342,95 @@ PAGE SNIPPET:
 
   mindmap: `${STYLE_RULES}
 
-Создай ГЛУБОКИЙ MINDMAP (базовая структура). Верни JSON:
+Собери подробную исследовательскую mindmap как НЕ просто outline, а как кластерную knowledge map с группировками, подветками, сигналами и вопросами. Верни ТОЛЬКО JSON:
 {
   "title": "Заголовок",
   "nodes": [
     {
       "id": "1",
-      "label": "Тема 1",
-      "description": "Описание",
-      "insights": ["Инсайт"],
+      "label": "Кластер 1",
+      "kind": "cluster",
+      "group": "Стратегический слой",
+      "description": "Что именно объединяет этот кластер и зачем он важен",
+      "insights": ["Ключевая линия"],
+      "evidence": ["Факт / пример / сигнал"],
+      "questions": ["Что ещё нужно проверить"],
       "children": []
     }
   ],
-  "metadata": {"domain": "AI", "complexity": "high", "nodeCount": 0}
+  "metadata": {
+    "domain": "Security",
+    "complexity": "high",
+    "coverage": "broad",
+    "mapStyle": "clustered",
+    "nodeCount": 0
+  }
 }
 
 Требования:
-- Минимум 6-8 главных веток (level 1).
-- Глубина каждой ветки минимум 3-4 уровня.
-- Всего должно быть минимум 50-60 узлов в сумме.
+- Это должна быть именно карта исследования: кластеры -> подветки -> конкретные узлы, а не линейное оглавление.
+- Все label, group, title и description пиши по-русски. Оригинальные англоязычные термины, product names и jargon уноси в description коротким хвостом в скобках или через [[term:...]].
+- 7-10 главных веток уровня 1, и каждая должна быть самостоятельным кластером со своим фокусом.
+- У каждой главной ветки 4-6 содержательных детей, причём дети должны смешивать несколько типов узлов.
+- Для 5-7 самых важных детей добавь grandchildren уже в initial response; у части веток нужны уже 3 уровня глубины.
+- Целевой размер initial response: 40-64 узла суммарно.
 - Используй [[entity:]], [[term:]] в description.
+- Ветки не должны быть одного типа: смешивай concepts / systems / actors / workflows / risks / tools / evidence / questions / integrations.
+- У каждого узла должен быть kind из набора: cluster, mechanism, actor, tool, artifact, evidence, risk, question, workflow, integration.
+- group нужен для смысловой группировки. Для top-level cluster он обязателен; для детей тоже старайся задавать осмысленно, чтобы внутри кластера возникали lane-группы.
+- label короткий и ясный; description компактный, 1 короткое предложение; insights/evidence/questions по 0-3 и без воды.
+- Не делай карту линейной. Внутри кластеров обязательно должны быть разные подтипы узлов: что это, как работает, где применяется, какие риски, что проверить, какие сигналы уже есть.
+- Минимум у половины top-level clusters должны быть видимые внутренние подгруппы по смыслу: например "механика", "инструменты", "риски", "сигналы", "следующие проверки".
+- Явно подсвечивай связи между ветками: зависимости, конфликты, handoff-узлы, общие артефакты и decision points указывай в description / insights, чтобы карта читалась как сеть, а не как независимые списки.
+- Когда есть явная межветочная связь, помечай её маркером [[edge:Название другой ветки]] внутри description или insights.
+- Лучше плотная и глубокая карта с короткими формулировками, чем длинные prose-описания.
+- Избегай декоративных generic labels вроде "Overview", "Misc", "Other".
+- metadata.nodeCount = примерное число узлов в текущем JSON.
+- metadata.coverage = narrow | medium | broad.
+- metadata.mapStyle = clustered-lanes.
+- Без Markdown fences, без пояснений, только JSON.
 
 КОНТЕНТ: {content}
 SUMMARY: {summary}`,
 
   mindmapExpand: `${STYLE_RULES}
 
-Ты — архитектор знаний. РАСШИРЬ ветку mindmap.
+Ты — архитектор знаний. РАСШИРЬ ветку mindmap так, чтобы она стала глубже и полезнее как исследовательская карта, а не как outline.
 Ветка: "{label}" (Описание: {description})
 
-Твоя задача: Сгенерировать JSON массив детей (children) для этой ветки.
+Уже существующие дети:
+{existingChildren}
+
+Твоя задача: сгенерировать ТОЛЬКО JSON массив новых children для этой ветки.
 Требования:
-- 8-12 новых узлов (детей и внуков).
+- 3-5 новых узлов.
+- Все label, group и description пиши по-русски; исходные англоязычные термины выноси короткими комментариями в description.
+- Для 2-3 самых важных узлов добавь 2-4 grandchildren, если это делает ветку глубже по существу.
+- Каждый узел должен содержать поля: id, label, kind, group, description, insights, evidence, questions, children.
 - Добавь конкретные инструменты, библиотеки, людей, статьи ([[entity:...]]).
-- Добавь неочевидные связи и "подводные камни".
-- Формат: Array of objects (id, label, description, insights, tips, children).
+- Добавь неочевидные связи, зависимости, ограничения, точки принятия решений и "подводные камни".
+- Если новый узел зависит от другой ветки карты, добавь маркер [[edge:Название другой ветки]] в description или insights.
+- Следи за внутренним разнообразием: если у ветки уже есть только инструменты, не добавляй ещё пять инструментов подряд.
+- Новые узлы должны расширять карту по группам: старайся формировать 2-4 осмысленные mini-группы внутри ветки, а не просто россыпь однотипных карточек.
+- Хотя бы у 2 узлов должны появиться evidence или questions, чтобы ветка давала траекторию проверки, а не только описание.
+- Не дублируй существующие children по смыслу.
+- Не плодить искусственные узлы ради количества: каждый узел должен давать новую исследовательскую траекторию.
+- Формулировки держи короткими и плотными, чтобы ответ был компактным и быстрым.
+- Формат: Array of objects (id, label, kind, group, description, insights, evidence, questions, children).
+- Без Markdown fences, без комментариев.
 
 КОНТЕКСТ СТРАНИЦЫ:
-{content}`,
+{content}
+
+КРАТКАЯ СВОДКА:
+{summary}`,
 
   challenge: `${STYLE_RULES}
 
-7-10 ПРОВОКАЦИОННЫХ вопросов с гипотезами и литературой:
+Сделай critic / red-team разбор.
+
+Нужно: 7-10 ПРОВОКАЦИОННЫХ вопросов с гипотезами и литературой.
+Фокус: assumptions, incentives, market reality, execution failure modes, hidden dependencies, what the author may be missing.
 
 **Q1: [Вопрос]**
 - H1: [Гипотеза]
@@ -303,20 +449,25 @@ SUMMARY: {summary}`,
 SUMMARY: {summary}`,
 
   twitter: `${STYLE_RULES}
-Превратить в Twitter тред (5-7 твитов по 280 символов). Хук первым. CTA последним.
+Превратить в X/Twitter тред (5-7 твитов по 280 символов). Хук первым. CTA последним.
+- Нужен angle, а не пересказ.
+- Расставляй evidence и tension.
 КОНТЕНТ: {content}`,
 
   deepdive: `${STYLE_RULES}
 Глубокий анализ. Неочевидные связи. [[entity:]], [[term:]], [[action:]].
+- Покажи где суть, где скрытая механика, где риск ошибиться.
 КОНТЕНТ: {content}
 КОНТЕКСТ: {context}`,
 
   automation: `${STYLE_RULES}
 Как автоматизировать. API, n8n, Zapier. Конкретные шаги.
+- Дай quick win / robust version / scale version.
 КОНТЕНТ: {content}`,
 
   learning: `${STYLE_RULES}
 План изучения на 2 недели. Ресурсы, упражнения, проекты.
+- Нужны deliverables и критерии понимания.
 КОНТЕНТ: {content}`,
 
   share: `${STYLE_RULES}
@@ -325,12 +476,16 @@ SUMMARY: {summary}`,
 2. Email subject + 2 абзаца
 3. LinkedIn пост
 4. Telegram пост
+- Для каждого канала адаптируй tone and depth.
 КОНТЕНТ: {content}`,
 
   followUp: `${STYLE_RULES}
 Контекст: {history}
 Вопрос: {question}
-Ответь кратко и профессионально. Сарказм — максимум 1 короткая фраза.`,
+Ответь кратко и профессионально.
+- Сначала ответ, потом 1-3 supporting points.
+- Если вопрос упирается в пробел в контексте, скажи это прямо и предложи next best question.
+Сарказм — максимум 1 короткая фраза.`,
 
   actionToPrompt: `${STYLE_RULES}
 
@@ -341,6 +496,7 @@ SUMMARY: {summary}`,
 - Учитывай текущую страницу + браузерный контекст пользователя.
 - Учитывай МЕСТО, где это действие появилось (секция и строка-источник) — это и есть "целеполагание".
 - Не выдумывай факты. Если данных не хватает — добавь в промпт 2–4 уточняющих вопроса.
+- Промпт должен вести модель к сильному ответу: analysis path, quality bar, anti-slop guardrails, output contract.
 - Вывод: только промпт, без пояснений и без Markdown.
 
 ACTION (what to do): {action}
@@ -381,6 +537,7 @@ PAGE SNIPPET:
 Требования:
 - Никаких лишних полей.
 - prompt должен быть самодостаточным: цель, входные данные, формат ответа.
+- prompt должен быть реально полезной командой для работы, а не декоративным "рассказать про тему".
 - Если команда зависит от выделения — scope=selection и используй {selection}.
 
 ЗАПРОС ПОЛЬЗОВАТЕЛЯ (описание команды):
@@ -388,7 +545,7 @@ PAGE SNIPPET:
 
   workflowSuggestions: `${STYLE_RULES}
 
-Сгенерируй 8 "Next Best Workflows" (следующих лучших действий) на основе контента.
+Сгенерируй 10 лучших следующих сценариев работы на основе контента.
 Верни JSON:
 [
   { "title": "Название", "desc": "Однострочное описание", "prompt": "Полный промпт для выполнения..." },
@@ -396,9 +553,13 @@ PAGE SNIPPET:
 ]
 
 Требования:
-- Разные роли (Dev, Product, Strategy, Critic).
-- Конкретные, полезные задачи.
-- Промпты должны быть готовы к исполнению.
+- Дай смесь ролей: исследование, стратегия, продукт, инженерия, критика, операции.
+- Каждый сценарий должен вести к конкретному артефакту или решению, а не к абстрактному "подумать".
+- Промпты должны быть готовы к немедленному запуску без переписывания.
+- Нужна последовательность: быстрое уточнение -> глубокий разбор -> внедрение -> проверка -> распространение результата.
+- Избегай дубликатов по смыслу.
+- Если контент неоднозначен, часть сценариев должна быть про проверку и поиск противоречий.
+- Язык title/desc/prompt: русский. Английские термины допускаются только внутри prompt там, где без оригинального названия теряется смысл.
 
 КОНТЕНТ: {content}`
 };
@@ -420,9 +581,9 @@ async function getSettings() {
   ]);
 
   const maxParallelRaw = Number(settings.maxParallelRequests);
-  const maxParallelRequests = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 12;
+  const maxParallelRequests = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : DEFAULT_MAX_PARALLEL_REQUESTS;
   const targetOutRaw = Number(settings.targetMaxOutputTokens);
-  const targetMaxOutputTokens = Number.isFinite(targetOutRaw) ? Math.max(64, Math.min(4096, Math.round(targetOutRaw))) : 500;
+  const targetMaxOutputTokens = Number.isFinite(targetOutRaw) ? Math.max(64, Math.min(DEFAULT_TARGET_MAX_OUTPUT_TOKENS, Math.round(targetOutRaw))) : DEFAULT_TARGET_MAX_OUTPUT_TOKENS;
   const prefetchDelayRaw = Number(settings.prefetchDelayMs);
   const prefetchDelayMs = Number.isFinite(prefetchDelayRaw) ? Math.max(0, Math.min(2000, Math.round(prefetchDelayRaw))) : 320;
 
@@ -498,13 +659,13 @@ async function fetchUrlMeta(url) {
 }
 
 function stopActiveAudio() {
-  try { if (activeAudio) activeAudio.pause(); } catch (e) {}
+  try { if (activeAudio) activeAudio.pause(); } catch (e) { }
   activeAudio = null;
   if (activeAudioUrl) {
-    try { URL.revokeObjectURL(activeAudioUrl); } catch (e) {}
+    try { URL.revokeObjectURL(activeAudioUrl); } catch (e) { }
     activeAudioUrl = null;
   }
-  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
+  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) { }
   stopXaiRealtimePlayback();
 }
 
@@ -519,7 +680,7 @@ async function playAudioBase64(audioBase64, mime = 'audio/mpeg') {
   activeAudio = audio;
   audio.addEventListener('ended', () => {
     if (activeAudioUrl === url) {
-      try { URL.revokeObjectURL(url); } catch (e) {}
+      try { URL.revokeObjectURL(url); } catch (e) { }
       activeAudioUrl = null;
       activeAudio = null;
     }
@@ -653,13 +814,13 @@ function pushXaiRealtimeTranscriptLine(prefix, text) {
 function stopXaiRealtimePlayback() {
   try {
     xaiRealtimePlaybackSources.forEach(s => {
-      try { s.stop(0); } catch (e) {}
+      try { s.stop(0); } catch (e) { }
     });
-  } catch (e) {}
+  } catch (e) { }
   xaiRealtimePlaybackSources = [];
   xaiRealtimePlaybackNextTime = 0;
   if (xaiRealtimePlaybackCtx) {
-    try { xaiRealtimePlaybackCtx.close(); } catch (e) {}
+    try { xaiRealtimePlaybackCtx.close(); } catch (e) { }
   }
   xaiRealtimePlaybackCtx = null;
   xaiRealtimePlaybackGain = null;
@@ -689,7 +850,7 @@ function appendXaiRealtimeAudioDelta(deltaBase64, rate = XAI_REALTIME_AUDIO_RATE
   }
 
   if (xaiRealtimePlaybackCtx.state === 'suspended') {
-    xaiRealtimePlaybackCtx.resume().catch(() => {});
+    xaiRealtimePlaybackCtx.resume().catch(() => { });
   }
 
   const buf = xaiRealtimePlaybackCtx.createBuffer(1, float32.length, xaiRealtimePlaybackCtx.sampleRate);
@@ -726,7 +887,7 @@ function openWebSocketWithTimeout(url, protocols, timeoutMs = 8000) {
     }
 
     const timer = setTimeout(() => {
-      try { ws.close(); } catch (e) {}
+      try { ws.close(); } catch (e) { }
       reject(new Error('Realtime WS timeout'));
     }, timeoutMs);
 
@@ -737,7 +898,7 @@ function openWebSocketWithTimeout(url, protocols, timeoutMs = 8000) {
 
     ws.onerror = () => {
       clearTimeout(timer);
-      try { ws.close(); } catch (e) {}
+      try { ws.close(); } catch (e) { }
       reject(new Error('Realtime WS error'));
     };
   });
@@ -899,7 +1060,7 @@ async function startXaiRealtimePushToTalk() {
     }
 
     if (xaiRealtimeMicCtx.state === 'suspended') {
-      await xaiRealtimeMicCtx.resume().catch(() => {});
+      await xaiRealtimeMicCtx.resume().catch(() => { });
     }
 
     xaiRealtimeMicSource = xaiRealtimeMicCtx.createMediaStreamSource(stream);
@@ -930,17 +1091,17 @@ async function startXaiRealtimePushToTalk() {
   } catch (e) {
     xaiRealtimeIsRecording = false;
     setRecordingIndicator(false);
-    try { xaiRealtimeMicProcessor && (xaiRealtimeMicProcessor.onaudioprocess = null); } catch (e2) {}
-    try { xaiRealtimeMicProcessor && xaiRealtimeMicProcessor.disconnect(); } catch (e2) {}
-    try { xaiRealtimeMicSource && xaiRealtimeMicSource.disconnect(); } catch (e2) {}
-    try { xaiRealtimeMicZeroGain && xaiRealtimeMicZeroGain.disconnect(); } catch (e2) {}
-    try { xaiRealtimeMicStream && xaiRealtimeMicStream.getTracks().forEach(t => t.stop()); } catch (e2) {}
+    try { xaiRealtimeMicProcessor && (xaiRealtimeMicProcessor.onaudioprocess = null); } catch (e2) { }
+    try { xaiRealtimeMicProcessor && xaiRealtimeMicProcessor.disconnect(); } catch (e2) { }
+    try { xaiRealtimeMicSource && xaiRealtimeMicSource.disconnect(); } catch (e2) { }
+    try { xaiRealtimeMicZeroGain && xaiRealtimeMicZeroGain.disconnect(); } catch (e2) { }
+    try { xaiRealtimeMicStream && xaiRealtimeMicStream.getTracks().forEach(t => t.stop()); } catch (e2) { }
     xaiRealtimeMicStream = null;
     xaiRealtimeMicSource = null;
     xaiRealtimeMicProcessor = null;
     xaiRealtimeMicZeroGain = null;
     if (xaiRealtimeMicCtx) {
-      try { xaiRealtimeMicCtx.close(); } catch (e2) {}
+      try { xaiRealtimeMicCtx.close(); } catch (e2) { }
     }
     xaiRealtimeMicCtx = null;
     throw e;
@@ -952,17 +1113,17 @@ function stopXaiRealtimePushToTalk() {
   xaiRealtimeIsRecording = false;
   setRecordingIndicator(false);
 
-  try { xaiRealtimeMicProcessor && (xaiRealtimeMicProcessor.onaudioprocess = null); } catch (e) {}
-  try { xaiRealtimeMicProcessor && xaiRealtimeMicProcessor.disconnect(); } catch (e) {}
-  try { xaiRealtimeMicSource && xaiRealtimeMicSource.disconnect(); } catch (e) {}
-  try { xaiRealtimeMicZeroGain && xaiRealtimeMicZeroGain.disconnect(); } catch (e) {}
-  try { xaiRealtimeMicStream && xaiRealtimeMicStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { xaiRealtimeMicProcessor && (xaiRealtimeMicProcessor.onaudioprocess = null); } catch (e) { }
+  try { xaiRealtimeMicProcessor && xaiRealtimeMicProcessor.disconnect(); } catch (e) { }
+  try { xaiRealtimeMicSource && xaiRealtimeMicSource.disconnect(); } catch (e) { }
+  try { xaiRealtimeMicZeroGain && xaiRealtimeMicZeroGain.disconnect(); } catch (e) { }
+  try { xaiRealtimeMicStream && xaiRealtimeMicStream.getTracks().forEach(t => t.stop()); } catch (e) { }
   xaiRealtimeMicStream = null;
   xaiRealtimeMicSource = null;
   xaiRealtimeMicProcessor = null;
   xaiRealtimeMicZeroGain = null;
   if (xaiRealtimeMicCtx) {
-    try { xaiRealtimeMicCtx.close(); } catch (e) {}
+    try { xaiRealtimeMicCtx.close(); } catch (e) { }
   }
   xaiRealtimeMicCtx = null;
 
@@ -1029,7 +1190,7 @@ async function startVoiceRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, { mimeType });
   } catch (e) {
-    try { stream.getTracks().forEach(t => t.stop()); } catch (e2) {}
+    try { stream.getTracks().forEach(t => t.stop()); } catch (e2) { }
     isRecording = false;
     setRecordingIndicator(false);
     throw new Error('MediaRecorder недоступен');
@@ -1045,7 +1206,7 @@ async function startVoiceRecording() {
 
   mediaRecorder.onstop = async () => {
     setRecordingIndicator(false);
-    try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    try { stream.getTracks().forEach(t => t.stop()); } catch (e) { }
 
     const blob = new Blob(audioChunks, { type: mimeType });
     let base64 = '';
@@ -1313,7 +1474,7 @@ async function translateLargeText(text, targetLang = 'ru', onProgress) {
   let rendered = '';
   let lastUi = 0;
 
-  const limit = Number(settings.maxParallelRequests) || 12;
+  const limit = getAdaptiveParallelLimit(settings, 6, 8);
 
   const maybeUpdate = () => {
     if (typeof onProgress !== 'function') return;
@@ -1345,7 +1506,7 @@ async function translateLargeText(text, targetLang = 'ru', onProgress) {
 
 function extractPageContent(opts = {}) {
   const maxCharsRaw = (opts && typeof opts === 'object') ? Number(opts.maxChars) : NaN;
-  const maxChars = Number.isFinite(maxCharsRaw) ? Math.max(2000, Math.min(500_000, Math.round(maxCharsRaw))) : 18000;
+  const maxChars = Number.isFinite(maxCharsRaw) ? Math.max(2000, Math.min(500_000, Math.round(maxCharsRaw))) : 24000;
 
   const selectors = ['article', 'main', '[role="main"]', '.post-content', '.entry-content', '.content'];
   let container = null;
@@ -1380,7 +1541,7 @@ function extractHeadings() {
 }
 
 async function ensureTILBullets(summaryText, pageContent, contextText) {
-  const re = /(^##\s*💡\s*TIL[^\n]*\n)([\s\S]*?)(?=^##\s|\s*$)/im;
+  const re = /(^##\s*💡\s*(?:TIL|ВЫЯСНИЛОСЬ)[^\n]*\n)([\s\S]*?)(?=^##\s|\s*$)/im;
   const m = summaryText.match(re);
   if (!m) return summaryText;
 
@@ -1395,12 +1556,12 @@ async function ensureTILBullets(summaryText, pageContent, contextText) {
 
   const tilPrompt = `${STYLE_RULES}
 
-Сгенерируй секцию "## 💡 TIL" заново.
+Сгенерируй секцию "## 💡 ВЫЯСНИЛОСЬ" заново.
 
 Требования:
 - Ровно 4–8 bullet points
 - Каждый пункт строго с новой строки и начинается с "- "
-- Формат пункта: "Today I learned: ..." (по-русски после двоеточия)
+- Формат пункта: "Выяснилось: ..."
 - Только список, без заголовка, без Markdown, без нумерации
 
 КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:
@@ -1432,7 +1593,7 @@ async function generateTILList(pageContent, contextText) {
 Требования:
 - Ровно 4–10 bullet points
 - Каждый пункт строго с новой строки и начинается с "- "
-- Формат пункта: "Today I learned: ..." (по-русски после двоеточия)
+- Формат пункта: "Выяснилось: ..."
 - Только список, без заголовка, без Markdown, без нумерации
 
 КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:
@@ -1448,7 +1609,14 @@ ${String(pageContent || '').substring(0, 3500)}`;
     .filter(Boolean)
     .map(l => l.replace(/^[-•]\s+/, '').trim())
     .filter(Boolean)
-    .map(x => x.toLowerCase().startsWith('today i learned:') ? x : `Today I learned: ${x.replace(/^today i learned\s*:\s*/i, '')}`)
+    .map(x => {
+      const clean = x
+        .replace(/^today i learned\s*:\s*/i, '')
+        .replace(/^выяснилось\s*:\s*/i, '')
+        .trim();
+      return clean ? `Выяснилось: ${clean}` : '';
+    })
+    .filter(Boolean)
     .slice(0, 10);
 }
 
@@ -1487,18 +1655,38 @@ function slugifyForId(str = '') {
   return s || 'sec';
 }
 
-function formatRichText(text) {
-  const safe = escapeHtml(String(text || ''));
-  const headingCounts = new Map();
-  const withHeadings = safe.replace(/^## (.*$)/gm, (_, title) => {
-    const plain = unescapeBasicHtml(title).trim();
-    const slugBase = slugifyForId(plain);
-    const n = (headingCounts.get(slugBase) || 0) + 1;
-    headingCounts.set(slugBase, n);
-    const id = `pzdrk-sec-${slugBase}${n > 1 ? `-${n}` : ''}`;
-    return `<div class="pzdrk-section-title" id="${id}">${title}</div>`;
-  });
-  return withHeadings
+function extractTextCandidate(value, depth = 0) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (depth >= 2) return '';
+
+  if (Array.isArray(value)) {
+    return value
+      .map(item => extractTextCandidate(item, depth + 1))
+      .filter(Boolean)
+      .join(' — ');
+  }
+
+  if (typeof value === 'object') {
+    for (const key of ['label', 'title', 'text', 'name', 'summary', 'description', 'definition', 'prompt', 'action', 'task', 'content', 'value', 'question', 'why', 'note', 'context']) {
+      const candidate = extractTextCandidate(value[key], depth + 1);
+      if (candidate) return candidate;
+    }
+
+    const flat = Object.values(value)
+      .map(item => extractTextCandidate(item, depth + 1))
+      .filter(Boolean);
+    if (flat.length) return flat.join(' — ');
+  }
+
+  return '';
+}
+
+function applyInlineRichMarkup(safe) {
+  return String(safe || '')
     .replace(/\[\[entity:([^\]]+)\]\]/g, (_, name) => {
       const raw = unescapeBasicHtml(name).trim();
       return `<a class="pzdrk-entity" href="#" data-entity="${escapeAttr(raw)}">${escapeHtml(raw)}</a>`;
@@ -1522,23 +1710,211 @@ function formatRichText(text) {
     })
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^[-•]\s+(.*$)/gm, '<li class="pzdrk-li-ul">$1</li>')
-    .replace(/^\d+[\.)\]]\s+(.*$)/gm, '<li class="pzdrk-li-ol">$1</li>')
-    .replace(/(<li class="pzdrk-li-ul">[\s\S]*?<\/li>)+/g, '<ul class="pzdrk-list">$&</ul>')
-    .replace(/(<li class="pzdrk-li-ol">[\s\S]*?<\/li>)+/g, '<ol class="pzdrk-olist">$&</ol>')
-    .replace(/\n{2,}/g, '<div class="pzdrk-par-spacer"></div>')
-    .replace(/\n/g, '<br>')
-    // Remove <br> injected between list items (keeps lists tight)
-    .replace(/<\/li>(?:<br>)+/g, '</li>')
-    .replace(/<\/li>(?:<div class="pzdrk-par-spacer"><\/div>)+/g, '</li>')
-    .replace(/<ul class="pzdrk-list">(?:<br>)+/g, '<ul class="pzdrk-list">')
-    .replace(/<ul class="pzdrk-list">(?:<div class="pzdrk-par-spacer"><\/div>)+/g, '<ul class="pzdrk-list">')
-    .replace(/<ol class="pzdrk-olist">(?:<br>)+/g, '<ol class="pzdrk-olist">')
-    .replace(/<ol class="pzdrk-olist">(?:<div class="pzdrk-par-spacer"><\/div>)+/g, '<ol class="pzdrk-olist">')
-    .replace(/(?:<br>)+<\/ul>/g, '</ul>')
-    .replace(/(?:<div class="pzdrk-par-spacer"><\/div>)+<\/ul>/g, '</ul>')
-    .replace(/(?:<br>)+<\/ol>/g, '</ol>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function formatRichInline(text) {
+  return applyInlineRichMarkup(escapeHtml(String(text || '')));
+}
+
+function isMarkdownTableLine(line) {
+  const trimmed = String(line || '').trim();
+  return trimmed.startsWith('|') && (trimmed.match(/\|/g) || []).length >= 2;
+}
+
+function isMarkdownTableSeparatorLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return false;
+  const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+  return cells.length > 1 && cells.every(cell => /^:?-{2,}:?$/.test(cell));
+}
+
+function parseMarkdownTableRow(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => cell.trim());
+}
+
+function detectRichTableVariant(headerRow) {
+  const joined = (Array.isArray(headerRow) ? headerRow : [])
+    .map(cell => String(cell || '').toLowerCase().replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' | ');
+
+  if (!joined) return 'generic';
+  if (/вариант/.test(joined) && /(скорость|риск|зависим|что да[её]т|когда подходит|цена|запуск)/.test(joined)) return 'matrix';
+  if (/(источник|ссылка)/.test(joined) && /(подтверждает|слабое место|что проверить)/.test(joined)) return 'sources';
+  if (/этап/.test(joined) && /(кто вовлеч|последств|уверенность|зависим)/.test(joined)) return 'timeline';
+  if (/шаг/.test(joined) && /(что делаем|зачем|зависим|готово, когда|результат)/.test(joined)) return 'opsplan';
+  if (/(сущность|параметр|значение|контекст|роль)/.test(joined)) return 'extract';
+  return 'generic';
+}
+
+function getRichTableVariantLabel(variant) {
+  switch (String(variant || '').trim()) {
+    case 'matrix': return 'Матрица вариантов';
+    case 'sources': return 'Карта источников';
+    case 'timeline': return 'Хронология и этапы';
+    case 'opsplan': return 'Пошаговый план';
+    case 'extract': return 'Сущности и параметры';
+    default: return '';
+  }
+}
+
+function renderRichTable(lines) {
+  const rows = (Array.isArray(lines) ? lines : [])
+    .map(parseMarkdownTableRow)
+    .filter(row => row.some(Boolean));
+
+  if (!rows.length) return '';
+
+  const hasExplicitHeader = lines.length > 1 && isMarkdownTableSeparatorLine(lines[1]);
+  const headerRow = rows[0] || [];
+  const bodyRows = (hasExplicitHeader ? rows.slice(2) : rows.slice(1))
+    .filter(row => row.some(Boolean));
+  const colCount = Math.max(
+    headerRow.length,
+    ...bodyRows.map(row => row.length),
+    1
+  );
+  const variant = detectRichTableVariant(headerRow);
+
+  const normalizeRow = (row) => Array.from({ length: colCount }, (_, index) => row[index] || '');
+  const renderHeaderCell = (cell, index) => `<th class="${index === 0 ? 'is-key-col' : ''}">${formatRichInline(cell) || '&nbsp;'}</th>`;
+  const renderBodyCell = (cell, index) => `<td class="${index === 0 ? 'is-key-col' : ''}" data-col="${index + 1}">${formatRichInline(cell) || '&nbsp;'}</td>`;
+
+  const thead = `<thead><tr>${normalizeRow(headerRow).map(renderHeaderCell).join('')}</tr></thead>`;
+  const tbodyRows = bodyRows.length ? bodyRows : [headerRow];
+  const tbody = `<tbody>${tbodyRows.map(row => `<tr>${normalizeRow(row).map(renderBodyCell).join('')}</tr>`).join('')}</tbody>`;
+  const kicker = getRichTableVariantLabel(variant);
+
+  return `<div class="pzdrk-rich-table-wrap is-${variant}" data-table-variant="${escapeAttr(variant)}">${kicker ? `<div class="pzdrk-rich-table-kicker">${escapeHtml(kicker)}</div>` : ''}<table class="pzdrk-rich-table is-${variant}">${thead}${tbody}</table></div>`;
+}
+
+function isPseudoSectionTitleLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return false;
+  if (/^##+\s+/.test(trimmed)) return true;
+  const body = trimmed.replace(/^\d+[\.)]?\s+/, '').trim();
+  if (body.length < 8 || /[.!?]$/.test(body)) return false;
+  const letters = body.match(/[A-Za-zА-Яа-яЁё]/g) || [];
+  if (letters.length < 6) return false;
+  const upper = body.match(/[A-ZА-ЯЁ]/g) || [];
+  return (upper.length / letters.length) >= 0.72;
+}
+
+function buildRichSectionTitleHtml(line, headingCounts) {
+  const raw = String(line || '').trim();
+  const display = raw.replace(/^##+\s+/, '').trim();
+  const plain = unescapeBasicHtml(display).trim();
+  const slugBase = slugifyForId(plain.replace(/^\d+[\.)]?\s+/, ''));
+  const n = (headingCounts.get(slugBase) || 0) + 1;
+  headingCounts.set(slugBase, n);
+  const id = `pzdrk-sec-${slugBase}${n > 1 ? `-${n}` : ''}`;
+  return `<div class="pzdrk-section-title" id="${id}">${formatRichInline(display)}</div>`;
+}
+
+function formatRichText(text) {
+  const source = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!source) return '';
+
+  const lines = source.split('\n');
+  const headingCounts = new Map();
+  const html = [];
+  let paragraphBuffer = [];
+  let paragraphIndex = 0;
+  let listKind = '';
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    const rawLines = paragraphBuffer.map(line => String(line || '').trim()).filter(Boolean);
+    paragraphBuffer = [];
+    if (!rawLines.length) return;
+    const flat = rawLines.join(' ').replace(/\s+/g, ' ').trim();
+    const klass = (paragraphIndex === 0 || /^(?:цель|итог|bottom line|tl;dr)\b/i.test(flat))
+      ? 'pzdrk-rich-lead'
+      : 'pzdrk-rich-paragraph';
+    html.push(`<div class="${klass}">${rawLines.map(line => formatRichInline(line)).join('<br>')}</div>`);
+    paragraphIndex += 1;
+  };
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    const tag = listKind === 'ol' ? 'ol' : 'ul';
+    const klass = tag === 'ol' ? 'pzdrk-olist' : 'pzdrk-list';
+    html.push(`<${tag} class="${klass}">${listItems.map(item => `<li>${formatRichInline(item)}</li>`).join('')}</${tag}>`);
+    listKind = '';
+    listItems = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const trimmed = String(rawLine || '').trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    if (isMarkdownTableLine(trimmed)) {
+      flushParagraph();
+      flushList();
+      const tableLines = [trimmed];
+      while (index + 1 < lines.length && isMarkdownTableLine(lines[index + 1])) {
+        index += 1;
+        tableLines.push(String(lines[index] || '').trim());
+      }
+      html.push(renderRichTable(tableLines));
+      continue;
+    }
+
+    if (/^(?:-{3,}|—{3,}|\*{3,})$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      html.push('<div class="pzdrk-rich-rule"></div>');
+      continue;
+    }
+
+    if (isPseudoSectionTitleLine(trimmed)) {
+      flushParagraph();
+      flushList();
+      html.push(buildRichSectionTitleHtml(trimmed, headingCounts));
+      continue;
+    }
+
+    if (/^[-•]\s+/.test(trimmed)) {
+      flushParagraph();
+      if (listKind && listKind !== 'ul') flushList();
+      listKind = 'ul';
+      listItems.push(trimmed.replace(/^[-•]\s+/, '').trim());
+      continue;
+    }
+
+    if (/^\d+[\.)\]]\s+/.test(trimmed)) {
+      flushParagraph();
+      if (listKind && listKind !== 'ol') flushList();
+      listKind = 'ol';
+      listItems.push(trimmed.replace(/^\d+[\.)\]]\s+/, '').trim());
+      continue;
+    }
+
+    if (listItems.length) {
+      listItems[listItems.length - 1] = `${listItems[listItems.length - 1]} ${trimmed}`.replace(/\s+/g, ' ').trim();
+      continue;
+    }
+
+    paragraphBuffer.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return html.join('<div class="pzdrk-par-spacer"></div>');
 }
 
 function buildNoteNav(note) {
@@ -1633,6 +2009,13 @@ function updateNoteNavPlacement(note) {
 
   nav.classList.remove('nav-overlay');
   const margin = 10;
+  const noteRect = note.getBoundingClientRect();
+  const navWidth = Math.max(nav.offsetWidth || 0, 132);
+  const isCramped = noteRect.left < (navWidth + margin + 8) || window.innerWidth < 1340 || noteRect.width < 520;
+  if (isCramped) {
+    nav.classList.add('nav-overlay');
+    return;
+  }
   const r = nav.getBoundingClientRect();
   if (r.left < margin) nav.classList.add('nav-overlay');
 }
@@ -1700,7 +2083,7 @@ function layoutNotes() {
       note.style.top = `${top}px`;
       note.style.transform = 'none';
       updateNoteNavPlacement(note);
-      if (actionsAnchorNote === note) updateNoteActionsPlacement(note);
+      if (note.dataset.actionsEnabled === 'true') updateNoteActionsPlacement(note);
       top += rect.height + NOTE_GRID.gapY;
     });
   } else {
@@ -1717,7 +2100,7 @@ function layoutNotes() {
         note.style.top = `${top}px`;
         note.style.transform = 'none';
         updateNoteNavPlacement(note);
-        if (actionsAnchorNote === note) updateNoteActionsPlacement(note);
+        if (note.dataset.actionsEnabled === 'true') updateNoteActionsPlacement(note);
         const rect = note.getBoundingClientRect();
         rowHeight = Math.max(rowHeight, rect.height);
       }
@@ -1732,6 +2115,18 @@ function markNoteManual(note) {
   if (!note) return;
   note.dataset.manual = 'true';
   if (note.dataset.layout !== 'flyout') note.dataset.layout = 'manual';
+}
+
+function bringNoteToFront(note) {
+  if (!note || !note.isConnected) return;
+  noteZCounter += 1;
+  note.style.zIndex = String(noteZCounter);
+}
+
+function getActionEnabledNotes() {
+  return currentNotes
+    .filter(note => note && note.isConnected)
+    .filter(note => note.dataset.actionsEnabled === 'true');
 }
 
 // ============ NOTE CREATION ============
@@ -1776,21 +2171,30 @@ function createNote(options = {}) {
     <div class="pzdrk-note-surface">
       <div class="pzdrk-note-header">
         <div class="pzdrk-note-header-left">
-          <span class="pzdrk-logo-wrap" aria-label="@pzdrk by pzd.world">
-            <img class="pzdrk-note-logo" src="${PZDRK_LOGO_URL}" alt="pzdrk">
-            <span class="pzdrk-brand-label">@pzdrk by pzd.world</span>
-          </span>
-          <span class="pzdrk-note-title">${title}</span>
-          <span class="pzdrk-privacy-badge" title="Trackers blocked"><span class="pzdrk-ghost-icon">👻</span><span class="pzdrk-blocked-count">0</span></span>
-          ${showTokens ? `<span class="pzdrk-token-badge"><span class="pzdrk-emoji">📊</span> <span class="pzdrk-page-tokens">${pageTokenCount}</span> / <span class="pzdrk-summary-tokens">0</span></span>` : ''}
+          <div class="pzdrk-note-header-identity">
+            <span class="pzdrk-logo-wrap" aria-label="@pzdrk by pzd.world">
+              <img class="pzdrk-note-logo" src="${PZDRK_LOGO_URL}" alt="pzdrk">
+              <span class="pzdrk-brand-label">@pzdrk by pzd.world</span>
+            </span>
+            <span class="pzdrk-note-title">${title}</span>
+          </div>
+          <div class="pzdrk-note-header-meta">
+            <span class="pzdrk-privacy-badge" title="Заблокированные трекеры"><span class="pzdrk-ghost-icon">👻</span><span class="pzdrk-blocked-count">0</span></span>
+            ${showTokens ? `<span class="pzdrk-token-badge" title="Размер входного контекста страницы и размер готовой заметки"><span class="pzdrk-emoji">📊</span><span class="pzdrk-token-label">вход</span><span class="pzdrk-page-tokens">${pageTokenCount}</span><span class="pzdrk-token-sep">•</span><span class="pzdrk-token-label">ответ</span><span class="pzdrk-summary-tokens">0</span></span>` : ''}
+          </div>
         </div>
         <div class="pzdrk-note-header-right">
-          <button class="pzdrk-btn-icon pzdrk-btn-mindmap" title="Mindmap (M)">🗺</button>
-          <button class="pzdrk-btn-icon pzdrk-btn-speak" title="Озвучить (V)">🔊</button>
-          <button class="pzdrk-btn-icon pzdrk-btn-copy" title="Копировать">📋</button>
-          <button class="pzdrk-btn-icon pzdrk-btn-download" title="Скачать">💾</button>
-          <button class="pzdrk-btn-icon pzdrk-btn-dock" title="В угол">⤡</button>
-          <button class="pzdrk-btn-icon pzdrk-btn-close" title="Закрыть">✕</button>
+          <div class="pzdrk-note-tool-group pzdrk-note-tool-group-primary">
+            <button class="pzdrk-btn-icon pzdrk-btn-mindmap" title="Карта (M)">🗺</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-speak" title="Озвучить (V)">🔊</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-copy" title="Копировать">📋</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-download" title="Скачать">💾</button>
+          </div>
+          <span class="pzdrk-note-tool-divider" aria-hidden="true"></span>
+          <div class="pzdrk-note-tool-group pzdrk-note-tool-group-shell">
+            <button class="pzdrk-btn-icon pzdrk-btn-dock" title="В угол">⤡</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-close" title="Закрыть">✕</button>
+          </div>
         </div>
       </div>
       <div class="pzdrk-note-content">${content}</div>
@@ -1801,6 +2205,7 @@ function createNote(options = {}) {
 
   document.body.appendChild(note);
   currentNotes.push(note);
+  bringNoteToFront(note);
   if (layout === 'grid') scheduleLayoutNotes();
 
   const observer = ensureNoteResizeObserver();
@@ -1832,12 +2237,12 @@ function createNote(options = {}) {
 
   const onMove = () => {
     updateNoteNavPlacement(note);
-    if (actionsAnchorNote === note) updateNoteActionsPlacement(note);
+    if (note.dataset.actionsEnabled === 'true') updateNoteActionsPlacement(note);
   };
-  if (layout !== 'flyout') {
-    makeDraggable(note, note.querySelector('.pzdrk-note-header'), onMove);
-    makeResizableAllEdges(note, onMove);
-  }
+  makeDraggable(note, note.querySelector('.pzdrk-note-header'), onMove);
+  makeResizableAllEdges(note, onMove);
+
+  note.addEventListener('mousedown', () => bringNoteToFront(note), true);
 
   // Track user interaction to avoid collapsing mid-scroll
   const contentEl = note.querySelector('.pzdrk-note-content');
@@ -1900,10 +2305,8 @@ function createNote(options = {}) {
   note.querySelector('.pzdrk-btn-close').addEventListener('click', () => {
     note.remove();
     currentNotes = currentNotes.filter(n => n !== note);
-    if (actionsAnchorNote === note) {
-      actionsAnchorNote = null;
-      hideActionFlyout(true);
-    }
+    if (actionsAnchorNote === note) actionsAnchorNote = null;
+    if (actionFlyout?.anchorEl && !actionFlyout.anchorEl.isConnected) hideActionFlyout(true);
     if (noteResizeObserver) noteResizeObserver.unobserve(note);
     if (note.dataset.layout === 'flyout' && actionFlyout?.note === note) actionFlyout = null;
     scheduleLayoutNotes();
@@ -1914,7 +2317,7 @@ function createNote(options = {}) {
     if (note.dataset.layout === 'flyout') return;
     toggleDock(note);
     updateNoteNavPlacement(note);
-    if (actionsAnchorNote === note) updateNoteActionsPlacement(note);
+    if (note.dataset.actionsEnabled === 'true') updateNoteActionsPlacement(note);
   });
 
   // Clicking docked header restores previous position
@@ -1926,9 +2329,13 @@ function createNote(options = {}) {
   });
 
   // Copy
-  note.querySelector('.pzdrk-btn-copy').addEventListener('click', () => {
-    navigator.clipboard.writeText(note.querySelector('.pzdrk-note-content').innerText);
-    showToast('📋 Скопировано');
+  note.querySelector('.pzdrk-btn-copy').addEventListener('click', async () => {
+    try {
+      await copyTextToClipboard(note.querySelector('.pzdrk-note-content').innerText);
+      showToast('📋 Скопировано');
+    } catch (e) {
+      showToast('📋 Ошибка копирования: ' + (e?.message || 'ошибка'));
+    }
   });
 
   // Download
@@ -1982,7 +2389,7 @@ function createNote(options = {}) {
   });
 
   // MINDMAP button = generate mindmap in NEW note
-  note.querySelector('.pzdrk-btn-mindmap').addEventListener('click', () => generateMindmap());
+  note.querySelector('.pzdrk-btn-mindmap').addEventListener('click', () => generateMindmap(note));
 
   // Update privacy badge
   getTrackerStats().then(stats => {
@@ -2026,7 +2433,7 @@ function toggleDock(note, { forceUndock = false } = {}) {
   } else {
     note.classList.remove('docked');
     let prev = null;
-    try { prev = JSON.parse(note.dataset.prevDock || 'null'); } catch (e) {}
+    try { prev = JSON.parse(note.dataset.prevDock || 'null'); } catch (e) { }
 
     const wasManual = (note.dataset.prevManual || 'false') === 'true';
     if (prev && wasManual) {
@@ -2078,9 +2485,10 @@ document.addEventListener('click', (e) => {
 function makeDraggable(element, handle, onMove) {
   let dragging = false, offset = { x: 0, y: 0 };
   handle.addEventListener('mousedown', (e) => {
-    if (element.dataset.layout === 'flyout') return;
     if (e.target.closest('button, input')) return;
     markNoteManual(element);
+    bringNoteToFront(element);
+    element.classList.add('is-dragging');
     dragging = true;
     const rect = element.getBoundingClientRect();
     offset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -2089,13 +2497,18 @@ function makeDraggable(element, handle, onMove) {
   });
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    element.style.left = Math.max(0, e.clientX - offset.x) + 'px';
-    element.style.top = Math.max(0, e.clientY - offset.y) + 'px';
+    const maxLeft = Math.max(8, window.innerWidth - element.offsetWidth - 8);
+    const maxTop = Math.max(8, window.innerHeight - Math.min(element.offsetHeight, window.innerHeight - 16) - 8);
+    const nextLeft = Math.max(8, Math.min(e.clientX - offset.x, maxLeft));
+    const nextTop = Math.max(8, Math.min(e.clientY - offset.y, maxTop));
+    element.style.left = nextLeft + 'px';
+    element.style.top = nextTop + 'px';
     if (onMove) onMove();
   });
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
+    element.classList.remove('is-dragging');
     if (onMove) onMove();
   });
 }
@@ -2107,8 +2520,9 @@ function makeResizableAllEdges(element, onMove) {
     const handle = element.querySelector(`.pzdrk-resize-${edge}`);
     if (!handle) return;
     handle.addEventListener('mousedown', (e) => {
-      if (element.dataset.layout === 'flyout') return;
       markNoteManual(element);
+      bringNoteToFront(element);
+      element.classList.add('is-resizing');
       resizing = edge; startRect = element.getBoundingClientRect(); startMouse = { x: e.clientX, y: e.clientY };
       e.preventDefault(); e.stopPropagation();
     });
@@ -2117,10 +2531,20 @@ function makeResizableAllEdges(element, onMove) {
     if (!resizing) return;
     const dx = e.clientX - startMouse.x, dy = e.clientY - startMouse.y;
     let w = startRect.width, h = startRect.height, l = startRect.left, t = startRect.top;
-    if (resizing.includes('e')) w = Math.max(280, startRect.width + dx);
-    if (resizing.includes('w')) { w = Math.max(280, startRect.width - dx); l = startRect.left + dx; }
-    if (resizing.includes('s')) h = Math.max(100, startRect.height + dy);
-    if (resizing.includes('n')) { h = Math.max(100, startRect.height - dy); t = startRect.top + dy; }
+    const maxWidth = Math.max(320, window.innerWidth - 16);
+    const maxHeight = Math.max(140, window.innerHeight - 16);
+    if (resizing.includes('e')) w = Math.max(280, Math.min(maxWidth, startRect.width + dx));
+    if (resizing.includes('w')) {
+      w = Math.max(280, Math.min(maxWidth, startRect.width - dx));
+      l = Math.max(8, startRect.left + dx);
+      w = Math.min(maxWidth, startRect.right - l);
+    }
+    if (resizing.includes('s')) h = Math.max(100, Math.min(maxHeight, startRect.height + dy));
+    if (resizing.includes('n')) {
+      h = Math.max(100, Math.min(maxHeight, startRect.height - dy));
+      t = Math.max(8, startRect.top + dy);
+      h = Math.min(maxHeight, startRect.bottom - t);
+    }
     element.style.width = w + 'px'; element.style.height = h + 'px'; element.style.maxHeight = h + 'px';
     if (resizing.includes('w')) element.style.left = l + 'px';
     if (resizing.includes('n')) element.style.top = t + 'px';
@@ -2130,6 +2554,7 @@ function makeResizableAllEdges(element, onMove) {
   document.addEventListener('mouseup', () => {
     if (!resizing) return;
     resizing = null;
+    element.classList.remove('is-resizing');
     if (onMove) onMove();
   });
 }
@@ -2140,6 +2565,45 @@ function showToast(message) {
   toast.textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 2500);
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '');
+  if (!value) throw new Error('Нет текста для копирования');
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (_) {
+      // Fall back to the legacy copy path when Clipboard API is blocked in page/extension context.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch (_) {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+
+  if (!copied) throw new Error('Не удалось скопировать в буфер');
 }
 
 // ============ HOVER TOOLTIPS + LINK PREVIEWS ============
@@ -2344,7 +2808,7 @@ function setupHoverInteractions(container) {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       const text = (el.dataset.evidence || el.textContent || '').trim();
-      navigator.clipboard.writeText(text).then(() => showToast('📋 Скопировано')).catch(() => {});
+      copyTextToClipboard(text).then(() => showToast('📋 Скопировано')).catch(() => { });
     });
   });
 
@@ -2373,7 +2837,7 @@ function setupHoverInteractions(container) {
 
       // Raw copy
       if (e.shiftKey) {
-        navigator.clipboard.writeText(actionText).then(() => showToast('📋 Скопировано')).catch(() => {});
+        copyTextToClipboard(actionText).then(() => showToast('📋 Скопировано')).catch(() => { });
         return;
       }
 
@@ -2401,8 +2865,8 @@ function setupHoverInteractions(container) {
         const out = (generated || '').trim();
         if (!out) throw new Error('Пустой ответ');
 
-        await navigator.clipboard.writeText(out);
-        showToast('⚡ Prompt скопирован');
+        await copyTextToClipboard(out);
+      showToast('⚡ Запрос скопирован');
       } catch (err) {
         showToast('⚡ Prompt: ' + (err?.message || 'ошибка'));
       }
@@ -2515,7 +2979,7 @@ function setupHoverInteractions(container) {
         showTooltipAt(
           e.pageX,
           e.pageY,
-          `<strong>Токены</strong><br>Слева: страница ≈ ${escapeHtml(pageTok)}<br>Справа: ответ ≈ ${escapeHtml(sumTok)}<br><span style="opacity:0.7">Оценка приблизительная</span>`
+          `<strong>Размер текста</strong><br>Вход: примерно ${escapeHtml(pageTok)} токенов страницы ушло в модель как контекст.<br>Ответ: примерно ${escapeHtml(sumTok)} токенов содержится в готовой заметке.<br><span style="opacity:0.7">Это приблизительные оценки длины входа и выхода, а не лимит и не качество ответа.</span>`
         );
       }, 180);
     });
@@ -2603,11 +3067,683 @@ function buildMetaHtml(ranking = {}) {
       <span class="pzdrk-meta-item pzdrk-meta-rank" data-depth="${depth}" data-depth-pct="${depthPct ?? ''}" data-depth-expl="${escapeAttr(depthExpl)}">${'★'.repeat(depth)}${'☆'.repeat(5 - depth)}</span>
       <span class="pzdrk-meta-item pzdrk-meta-domain" data-domain="${escapeAttr(ranking.domain || '')}" data-domain-conf="${domainConf ?? ''}" data-domain-expl="${escapeAttr(domainExpl)}">${escapeHtml(ranking.domain || 'Other')}</span>
       ${(ranking.tags || []).slice(0, 6).map(t => {
-        const expl = (tagExpl?.[t] || '').toString();
-        return `<span class="pzdrk-meta-item pzdrk-meta-tag" data-tag="${escapeAttr(t)}" data-tag-expl="${escapeAttr(expl)}">${escapeHtml(t)}</span>`;
-      }).join('')}
+    const expl = (tagExpl?.[t] || '').toString();
+    return `<span class="pzdrk-meta-item pzdrk-meta-tag" data-tag="${escapeAttr(t)}" data-tag-expl="${escapeAttr(expl)}">${escapeHtml(t)}</span>`;
+  }).join('')}
     </div>
   `;
+}
+
+function normalizeConcretePromptEntry(item) {
+  if (!item) return null;
+
+  if (typeof item === 'string') {
+    const clean = normalizeBulletLine(item);
+    if (!clean) return null;
+    return {
+      title: clean.slice(0, 72),
+      desc: '',
+      prompt: clean
+    };
+  }
+
+  if (typeof item !== 'object') return null;
+
+  const title = normalizeBulletLine(item.title || item.label || item.name || item.task || item.action || item.prompt);
+  const desc = normalizeBulletLine(item.desc || item.description || item.summary || item.why || '');
+  const prompt = normalizeBulletLine(item.prompt || item.text || item.content || item.value || '');
+  if (!title && !prompt) return null;
+
+  return {
+    title: (title || prompt).slice(0, 72),
+    desc: desc.slice(0, 180),
+    prompt: (prompt || title).slice(0, 900)
+  };
+}
+
+const SUMMARY_SECTION_PRESETS = [
+  { canonicalKey: 'tldr', emoji: '✳️', label: 'TL;DR', aliases: ['tldr', 'tl dr', 'tl;dr', 'главное', 'кратко', 'коротко'] },
+  { canonicalKey: 'core', emoji: '📌', label: 'СУТЬ', aliases: ['core', 'summary', 'essence', 'суть', 'главная мысль'] },
+  { canonicalKey: 'toc', emoji: '🧭', label: 'КАРТА', aliases: ['toc', 'map', 'outline', 'карта', 'структура', 'содержание'] },
+  { canonicalKey: 'mechanics', emoji: '⚙️', label: 'МЕХАНИЗМЫ', aliases: ['mechanics', 'architecture', 'how it works', 'механика', 'механизмы', 'архитектура'] },
+  { canonicalKey: 'implications', emoji: '🧩', label: 'ЗАЧЕМ ЭТО ВАЖНО', aliases: ['implications', 'importance', 'why it matters', 'почему это важно', 'зачем это важно', 'последствия'] },
+  { canonicalKey: 'usage', emoji: '🛠', label: 'ПРИМЕНЕНИЕ', aliases: ['usage', 'applications', 'use cases', 'use-cases', 'применение', 'сценарии'] },
+  { canonicalKey: 'automation', emoji: '🤖', label: 'АВТОМАТИЗАЦИИ', aliases: ['automation', 'automations', 'workflow', 'workflows', 'автоматизация', 'автоматизации'] },
+  { canonicalKey: 'open', emoji: '❓', label: 'ОТКРЫТЫЕ ВОПРОСЫ', aliases: ['open questions', 'questions', 'unknowns', 'неясности', 'открытые вопросы', 'что неясно'] },
+  { canonicalKey: 'verify', emoji: '🧪', label: 'ЧТО ПРОВЕРИТЬ ДАЛЬШЕ', aliases: ['verify', 'validation', 'next checks', 'что проверить дальше', 'проверить дальше'] },
+  { canonicalKey: 'risks', emoji: '⚠️', label: 'РИСКИ / НЕЯСНОСТИ', aliases: ['risks', 'risk', 'risks / questions', 'risks questions', 'риски', 'риски неясности'] },
+  { canonicalKey: 'details', emoji: '🔎', label: 'ДЕТАЛИ', aliases: ['details', 'detail', 'details / context', 'детали', 'контекст'] }
+];
+
+function normalizeSectionMatchToken(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function getSummarySectionPreset(section) {
+  if (!section || typeof section !== 'object') return null;
+
+  const tokens = [
+    normalizeSectionMatchToken(section.key),
+    normalizeSectionMatchToken(section.label),
+    normalizeSectionMatchToken(section.title)
+  ].filter(Boolean);
+
+  for (const preset of SUMMARY_SECTION_PRESETS) {
+    for (const alias of preset.aliases) {
+      const target = normalizeSectionMatchToken(alias);
+      if (!target) continue;
+      if (tokens.some(token => token === target || token.includes(target) || target.includes(token))) {
+        return preset;
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeSummaryParagraph(value, maxLen = 420) {
+  return extractTextCandidate(value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, Math.max(40, Number(maxLen) || 420));
+}
+
+function normalizeSummaryTextList(values, limit = 8, maxLen = 420) {
+  const input = Array.isArray(values) ? values : (values == null ? [] : [values]);
+  const out = [];
+  const seen = new Set();
+
+  for (const raw of input) {
+    const line = normalizeSummaryParagraph(raw, maxLen);
+    const key = line.toLowerCase();
+    if (!line || seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+    if (out.length >= Math.max(1, Number(limit) || 8)) break;
+  }
+
+  return out;
+}
+
+function normalizeSummaryRightBlock(right) {
+  const r = (right && typeof right === 'object') ? right : {};
+
+  const commentary = normalizeSummaryTextList(r.commentary, 6, 420);
+
+  const terms = (Array.isArray(r.terms) ? r.terms : [])
+    .map(item => ({
+      term: normalizeSummaryParagraph(item?.term || item?.name || item?.label || item, 80),
+      definition: normalizeSummaryParagraph(item?.definition || item?.description || item?.meaning || item?.context || item?.value, 260)
+    }))
+    .filter(item => item.term || item.definition)
+    .slice(0, 10);
+
+  const entities = (Array.isArray(r.entities) ? r.entities : [])
+    .map(item => ({
+      name: normalizeSummaryParagraph(item?.name || item?.title || item?.label || item, 80),
+      context: normalizeSummaryParagraph(item?.context || item?.description || item?.role || item?.summary, 220),
+      exaQuery: normalizeSummaryParagraph(item?.exaQuery || item?.query || item?.search || item?.lookup, 160)
+    }))
+    .filter(item => item.name)
+    .slice(0, 12);
+
+  const refs = (Array.isArray(r.refs) ? r.refs : [])
+    .map(item => ({
+      query: normalizeSummaryParagraph(item?.query || item?.search || item?.title || item, 180),
+      why: normalizeSummaryParagraph(item?.why || item?.reason || item?.context || item?.note, 180)
+    }))
+    .filter(item => item.query)
+    .slice(0, 10);
+
+  return { commentary, terms, entities, refs };
+}
+
+function normalizeSummarySection(section, index = 0) {
+  if (!section || typeof section !== 'object') return null;
+
+  const preset = getSummarySectionPreset(section);
+  const fallbackTitle = normalizeSummaryParagraph(section.label || section.title || section.key || `Раздел ${index + 1}`, 64) || `Раздел ${index + 1}`;
+  const left = normalizeSummaryTextList(section.left, 12, 320);
+  const actions = normalizeSummaryTextList(section.actions, 8, 280);
+
+  return {
+    key: preset?.canonicalKey || slugifyForId(section.key || fallbackTitle || `section-${index + 1}`),
+    emoji: String(section.emoji || preset?.emoji || '').trim(),
+    label: String(preset?.label || fallbackTitle).trim(),
+    left,
+    actions,
+    right: normalizeSummaryRightBlock(section.right)
+  };
+}
+
+function deriveTldrLinesFromSections(sections) {
+  const sourceSections = [
+    sections.find(section => section?.key === 'core'),
+    sections.find(section => Array.isArray(section?.left) && section.left.length >= 3),
+    sections[0]
+  ].filter(Boolean);
+
+  for (const section of sourceSections) {
+    const lines = normalizeSummaryTextList(section.left, 4, 220);
+    if (lines.length) return lines;
+  }
+
+  return [];
+}
+
+function deriveAutomationBullets(summaryObj) {
+  const prompts = ensureConcretePrompts(summaryObj, { title: summaryObj?.title });
+  return prompts
+    .slice(0, 6)
+    .map(item => normalizeBulletLine(`${item.title}${item.desc ? ` — ${item.desc}` : ''}`))
+    .filter(Boolean);
+}
+
+function deriveVerifyBullets(sections) {
+  const list = [];
+
+  for (const section of (Array.isArray(sections) ? sections : [])) {
+    const refs = Array.isArray(section?.right?.refs) ? section.right.refs : [];
+    refs.forEach(ref => {
+      const query = normalizeSummaryParagraph(ref?.query, 180);
+      if (!query) return;
+      const line = normalizeBulletLine(`Проверить: ${query}${ref?.why ? ` — ${normalizeSummaryParagraph(ref.why, 180)}` : ''}`);
+      if (line) list.push(line);
+    });
+
+    const entities = Array.isArray(section?.right?.entities) ? section.right.entities : [];
+    entities.forEach(entity => {
+      const name = normalizeSummaryParagraph(entity?.name, 80);
+      if (!name) return;
+      const line = normalizeBulletLine(`Уточнить [[entity:${name}]]${entity?.context ? ` — ${normalizeSummaryParagraph(entity.context, 160)}` : ''}`);
+      if (line) list.push(line);
+    });
+
+    const terms = Array.isArray(section?.right?.terms) ? section.right.terms : [];
+    terms.forEach(term => {
+      const name = normalizeSummaryParagraph(term?.term, 80);
+      if (!name) return;
+      const line = normalizeBulletLine(`Уточнить [[term:${name}]]${term?.definition ? ` — ${normalizeSummaryParagraph(term.definition, 180)}` : ''}`);
+      if (line) list.push(line);
+    });
+  }
+
+  return normalizeSummaryTextList(list, 8, 240);
+}
+
+function orderSummarySections(summaryObj) {
+  if (!summaryObj || typeof summaryObj !== 'object') return [];
+
+  const incoming = Array.isArray(summaryObj.sections) ? summaryObj.sections : [];
+  const normalized = incoming
+    .map((section, index) => normalizeSummarySection(section, index))
+    .filter(Boolean);
+
+  if (!normalized.some(section => section.key === 'tldr')) {
+    const tldrLeft = deriveTldrLinesFromSections(normalized);
+    if (tldrLeft.length) {
+      normalized.unshift({
+        key: 'tldr',
+        emoji: '✳️',
+        label: 'TL;DR',
+        left: tldrLeft,
+        actions: [],
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      });
+    }
+  }
+
+  if (!normalized.some(section => section.key === 'automation')) {
+    const automationLeft = deriveAutomationBullets(summaryObj);
+    if (automationLeft.length) {
+      normalized.push({
+        key: 'automation',
+        emoji: '🤖',
+        label: 'АВТОМАТИЗАЦИИ',
+        left: automationLeft,
+        actions: [],
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      });
+    }
+  }
+
+  if (!normalized.some(section => section.key === 'verify')) {
+    const verifyLeft = deriveVerifyBullets(normalized);
+    if (verifyLeft.length) {
+      normalized.push({
+        key: 'verify',
+        emoji: '🧪',
+        label: 'ЧТО ПРОВЕРИТЬ ДАЛЬШЕ',
+        left: verifyLeft,
+        actions: [],
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      });
+    }
+  }
+
+  const rank = new Map(SUMMARY_SECTION_PRESETS.map((preset, index) => [preset.canonicalKey, index]));
+
+  const ordered = normalized
+    .map((section, index) => ({ section, index }))
+    .sort((a, b) => {
+      const aRank = rank.has(a.section.key) ? rank.get(a.section.key) : 999 + a.index;
+      const bRank = rank.has(b.section.key) ? rank.get(b.section.key) : 999 + b.index;
+      return aRank - bRank;
+    })
+    .map(item => item.section);
+
+  summaryObj.sections = ordered;
+  return ordered;
+}
+
+function buildPromptTitleFromAction(actionLine = '', index = 0) {
+  const raw = normalizeBulletLine(actionLine)
+    .replace(/\[\[(?:action|entity|term|evidence|wiki):([^\]]+)\]\]/gi, '$1')
+    .replace(/\s*[—-]\s+.+$/, '')
+    .trim();
+  if (raw) return raw.slice(0, 72);
+
+  const words = normalizeBulletLine(actionLine).split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
+  return (words || `Запрос ${index + 1}`).slice(0, 72);
+}
+
+function collectSummaryActions(summaryObj, limit = 12) {
+  if (!summaryObj || typeof summaryObj !== 'object') return [];
+
+  const topLevel = Array.isArray(summaryObj.actions) ? summaryObj.actions : [];
+  const sectionLevel = (Array.isArray(summaryObj.sections) ? summaryObj.sections : [])
+    .flatMap(section => (Array.isArray(section?.actions) ? section.actions : []));
+
+  const out = [];
+  const seen = new Set();
+  for (const raw of [...topLevel, ...sectionLevel]) {
+    const action = normalizeBulletLine(raw);
+    const key = action.toLowerCase();
+    if (!action || seen.has(key)) continue;
+    seen.add(key);
+    out.push(action);
+    if (out.length >= Math.max(1, Number(limit) || 12)) break;
+  }
+
+  return out;
+}
+
+function deriveConcretePromptsFromActions(actions, options = {}) {
+  const title = String(options?.title || document.title || 'эта страница').trim().slice(0, 120);
+  const til = Array.isArray(options?.til) ? options.til.map(normalizeBulletLine).filter(Boolean).slice(0, 3) : [];
+  const out = [];
+  const seen = new Set();
+
+  const actionList = Array.isArray(actions) ? actions : [];
+  actionList.forEach((actionLine, index) => {
+    const cleanAction = normalizeBulletLine(actionLine).replace(/\[\[(?:action|entity|term|evidence|wiki):([^\]]+)\]\]/gi, '$1');
+    if (!cleanAction) return;
+
+    const promptTitle = buildPromptTitleFromAction(cleanAction, index);
+    const dedupeKey = promptTitle.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    const tilHints = til.length ? `\nПолезные сигналы из заметки:\n- ${til.join('\n- ')}` : '';
+    out.push({
+      title: promptTitle,
+      desc: cleanAction.slice(0, 180),
+      prompt: [
+        `ЗАДАЧА: используй summary по странице "${title}" и выполни следующий шаг: ${cleanAction}.`,
+        '',
+        'КОНТЕКСТ: опирайся на текущую страницу, уже собранную сводку и сигналы ниже. Не добавляй факты, которых нет в материале; если нужен внешний факт, пометь это как проверку.',
+        tilHints ? tilHints.trim() : 'Полезные сигналы из заметки: пока нет, начни с самого действия и явно назови недостающие данные.',
+        '',
+        'ОГРАНИЧЕНИЯ:',
+        '- Пиши по-русски, предметно, без generic management prose.',
+        '- Разделяй факт, inference, гипотезу и open question.',
+        '- Если результат зависит от предположения, назови предположение и способ проверки.',
+        '',
+        'ВЕРНИ:',
+        '1. цель и почему это важно именно сейчас',
+        '2. входные данные и недостающий контекст',
+        '3. пошаговый план выполнения',
+        '4. готовый артефакт / черновик / шаблон, который можно сразу использовать',
+        '5. риски, trade-offs и failure modes',
+        '6. критерий готовности и быстрый quality check',
+        '',
+        'КРИТЕРИЙ КАЧЕСТВА: результат должен быть полезен без дополнительной раскачки, с конкретными формулировками, проверками и следующим действием.'
+      ].join('\n')
+    });
+  });
+
+  return out.slice(0, 8);
+}
+
+function ensureConcretePrompts(summaryObj, options = {}) {
+  if (!summaryObj || typeof summaryObj !== 'object') return [];
+
+  const source = summaryObj.concrete_prompts || summaryObj.concretePrompts || summaryObj.next_best_prompts || [];
+  const normalized = (Array.isArray(source) ? source : [])
+    .map(normalizeConcretePromptEntry)
+    .filter(Boolean);
+
+  const fallback = deriveConcretePromptsFromActions(collectSummaryActions(summaryObj, 12), {
+    title: options?.title || summaryObj.title,
+    til: summaryObj.til || []
+  });
+
+  const combined = [...normalized, ...fallback];
+  const out = [];
+  const seen = new Set();
+  for (const item of combined) {
+    const key = String(item?.title || item?.prompt || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= 8) break;
+  }
+
+  summaryObj.concrete_prompts = out;
+  return out;
+}
+
+function renderConcretePromptCards(prompts) {
+  const list = (Array.isArray(prompts) ? prompts : [])
+    .map(normalizeConcretePromptEntry)
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (!list.length) {
+    return renderStateCard({
+      tone: 'waiting',
+      icon: '⏳',
+      title: 'Готовые запросы ещё собираются',
+      body: 'Сначала дочитываю ключевые sections и действия, затем соберу прикладные prompt-ы.',
+      compact: true
+    });
+  }
+
+  return `<div class="pzdrk-prompt-grid">${list.map((item, index) => `
+    <button class="pzdrk-prompt-card" type="button" data-concrete-prompt="${escapeAttr(item.prompt)}" title="Скопировать запрос ${index + 1}">
+      <div class="pzdrk-prompt-card-top">
+        <span class="pzdrk-prompt-index">#${index + 1}</span>
+        <span class="pzdrk-prompt-badge">готовый запрос</span>
+        <span class="pzdrk-prompt-copy">клик — в буфер</span>
+      </div>
+      <div class="pzdrk-prompt-title">${escapeHtml(item.title)}</div>
+      <div class="pzdrk-prompt-desc">${escapeHtml(item.desc || normalizeBulletLine(item.prompt).slice(0, 160))}</div>
+      <div class="pzdrk-prompt-footer">
+        <span class="pzdrk-prompt-mode">точечный prompt</span>
+        <span class="pzdrk-prompt-arrow">↗</span>
+      </div>
+    </button>
+  `).join('')}</div>`;
+}
+
+function renderStateCard({ tone = 'neutral', icon = '', title = '', body = '', meta = '', compact = false } = {}) {
+  const safeTone = ['neutral', 'waiting', 'error', 'success', 'muted'].includes(String(tone || '').trim())
+    ? String(tone || '').trim()
+    : 'neutral';
+  const safeIcon = String(icon || '').trim();
+  const safeTitle = String(title || '').trim();
+  const safeBody = String(body || '').trim();
+  const safeMeta = String(meta || '').trim();
+
+  return `
+    <div class="pzdrk-state-card is-${escapeAttr(safeTone)}${compact ? ' is-compact' : ''}">
+      ${(safeIcon || safeTitle) ? `
+        <div class="pzdrk-state-card-head">
+          ${safeIcon ? `<span class="pzdrk-state-card-icon">${escapeHtml(safeIcon)}</span>` : ''}
+          ${safeTitle ? `<div class="pzdrk-state-card-title">${escapeHtml(safeTitle)}</div>` : ''}
+        </div>
+      ` : ''}
+      ${safeBody ? `<div class="pzdrk-state-card-body">${escapeHtml(safeBody)}</div>` : ''}
+      ${safeMeta ? `<div class="pzdrk-state-card-meta">${escapeHtml(safeMeta)}</div>` : ''}
+    </div>
+  `;
+}
+
+function renderSummarySidecard(title, bodyHtml, tone = 'neutral') {
+  const safeTone = ['neutral', 'waiting', 'error', 'success', 'muted'].includes(String(tone || '').trim())
+    ? String(tone || '').trim()
+    : 'neutral';
+  return `
+    <div class="pzdrk-sidecard is-${escapeAttr(safeTone)}">
+      <div class="pzdrk-section-subtitle">${escapeHtml(title || 'Комментарий')}</div>
+      <div class="pzdrk-sidecard-body">${bodyHtml || ''}</div>
+    </div>
+  `;
+}
+
+function renderSummaryAsidePlaceholder(title, body) {
+  return renderStateCard({
+    tone: 'muted',
+    icon: '·',
+    title: title || 'Комментариев пока нет',
+    body: body || 'Этот блок уже самодостаточен слева; справа дополнения появятся только если они реально нужны.',
+    compact: true
+  });
+}
+
+function collectSectionBulletsByKeys(summaryObj, keys = [], limit = 4) {
+  const wanted = new Set((Array.isArray(keys) ? keys : []).map(key => String(key || '').trim().toLowerCase()).filter(Boolean));
+  if (!wanted.size) return [];
+  const sections = orderSummarySections(summaryObj);
+  const out = [];
+  const seen = new Set();
+
+  sections.forEach((section) => {
+    const key = String(section?.key || '').trim().toLowerCase();
+    if (!wanted.has(key)) return;
+    const left = Array.isArray(section?.left) ? section.left : [];
+    left.forEach((item) => {
+      const line = normalizeBulletLine(item);
+      const normalized = line.toLowerCase();
+      if (!line || seen.has(normalized)) return;
+      seen.add(normalized);
+      out.push(line);
+    });
+  });
+
+  return out.slice(0, Math.max(1, limit));
+}
+
+function renderSceneLines(items, emptyText = 'Заполню после следующего прохода') {
+  const list = (Array.isArray(items) ? items : []).map(item => normalizeBulletLine(item)).filter(Boolean).slice(0, 4);
+  if (!list.length) {
+    return `<div class="pzdrk-scene-empty">${escapeHtml(emptyText)}</div>`;
+  }
+  return `<div class="pzdrk-scene-lines">${list.map(line => `<div class="pzdrk-scene-line">${formatRichInline(line)}</div>`).join('')}</div>`;
+}
+
+function renderSummarySceneBoard(summaryObj) {
+  if (!summaryObj || typeof summaryObj !== 'object') return '';
+  const sections = orderSummarySections(summaryObj);
+  const actions = collectSummaryActions(summaryObj, 5);
+  const prompts = ensureConcretePrompts(summaryObj, { title: summaryObj.title }).slice(0, 4);
+  const useCases = collectSectionBulletsByKeys(summaryObj, ['usage', 'automation'], 4);
+  const risks = collectSectionBulletsByKeys(summaryObj, ['risks', 'open', 'verify'], 4);
+  const boardStats = [
+    { label: 'разделы', value: sections.length || 0 },
+    { label: 'действия', value: actions.length || 0 },
+    { label: 'запросы', value: prompts.length || 0 },
+    { label: 'проверки', value: risks.length || 0 }
+  ];
+  const clusterCards = sections
+    .filter(section => !['tldr', 'actions', 'concrete-prompts'].includes(String(section?.key || '').trim()))
+    .slice(0, 4)
+    .map((section) => {
+      const label = String(section?.label || section?.key || 'Раздел').trim();
+      const bullets = (Array.isArray(section?.left) ? section.left : []).slice(0, 2);
+      return `
+        <button class="pzdrk-scene-cluster-chip" type="button" data-scene-scroll="${escapeAttr(String(section?.key || '').trim())}">
+          <span class="pzdrk-scene-cluster-title">${escapeHtml(label)}</span>
+          <span class="pzdrk-scene-cluster-sub">${escapeHtml(normalizeBulletLine(bullets[0] || ''))}</span>
+        </button>
+      `;
+    }).join('');
+
+  return `
+    <section class="pzdrk-scene-board" data-summary-scene>
+      <div class="pzdrk-scene-board-head">
+        <div>
+          <div class="pzdrk-scene-board-kicker">Рабочая доска</div>
+          <div class="pzdrk-scene-board-title">Сводка в работу</div>
+          <div class="pzdrk-scene-board-subtitle">Карта темы, действия, запросы и проверки на первом экране.</div>
+          <div class="pzdrk-scene-stat-strip">
+            ${boardStats.map(item => `
+              <span class="pzdrk-scene-stat">
+                <strong>${escapeHtml(String(item.value))}</strong>
+                <span>${escapeHtml(item.label)}</span>
+              </span>
+            `).join('')}
+          </div>
+        </div>
+        <div class="pzdrk-scene-board-tools">
+          <button class="pzdrk-scene-tool" type="button" data-scene-action="mindmap">Полная карта</button>
+          <button class="pzdrk-scene-tool" type="button" data-scene-action="opsplan">План</button>
+          <button class="pzdrk-scene-tool" type="button" data-scene-action="challenge">Следующие запросы</button>
+          <button class="pzdrk-scene-tool" type="button" data-scene-action="sources">Источники</button>
+        </div>
+      </div>
+      <div class="pzdrk-scene-grid">
+        <article class="pzdrk-scene-card pzdrk-scene-card-map" data-scene-card="map">
+          <div class="pzdrk-scene-card-head">
+            <div class="pzdrk-scene-card-title">Карта темы</div>
+            <button class="pzdrk-scene-link" type="button" data-scene-action="mindmap">Развернуть</button>
+          </div>
+          <div class="pzdrk-scene-card-body">
+            <div class="pzdrk-scene-cluster-strip">${clusterCards || '<div class="pzdrk-scene-empty">Секции появятся после сборки сводки.</div>'}</div>
+            <div class="pzdrk-scene-mini-map">
+              ${renderSceneLines(collectSectionBulletsByKeys(summaryObj, ['tldr', 'core', 'mechanism'], 4), 'Сначала соберу TL;DR и механику.')}
+            </div>
+          </div>
+        </article>
+        <article class="pzdrk-scene-card" data-scene-card="actions">
+          <div class="pzdrk-scene-card-head">
+            <div class="pzdrk-scene-card-title">Следующие действия</div>
+            <button class="pzdrk-scene-link" type="button" data-scene-action="automation">Автоматизация</button>
+          </div>
+          <div class="pzdrk-scene-card-body">${renderSceneLines(actions, 'После синтеза sections появятся конкретные следующие шаги.')}</div>
+        </article>
+        <article class="pzdrk-scene-card" data-scene-card="prompts">
+          <div class="pzdrk-scene-card-head">
+            <div class="pzdrk-scene-card-title">Готовые запросы</div>
+            <button class="pzdrk-scene-link" type="button" data-scene-copy-prompts>Скопировать всё</button>
+          </div>
+          <div class="pzdrk-scene-card-body">
+            <div class="pzdrk-scene-prompt-stack">
+              ${prompts.length
+                ? prompts.map((item, index) => `
+                    <button class="pzdrk-scene-prompt-pill" type="button" data-scene-prompt="${escapeAttr(item.prompt)}" title="Скопировать запрос #${index + 1}">
+                      <span class="pzdrk-scene-prompt-index">#${index + 1}</span>
+                      <span class="pzdrk-scene-prompt-text">${escapeHtml(item.title)}</span>
+                    </button>
+                  `).join('')
+                : `<div class="pzdrk-scene-empty">Пакет запросов появится после сборки action-прохода.</div>`}
+            </div>
+          </div>
+        </article>
+        <article class="pzdrk-scene-card" data-scene-card="usecases">
+          <div class="pzdrk-scene-card-head">
+            <div class="pzdrk-scene-card-title">Применимость и сценарии (use cases)</div>
+            <button class="pzdrk-scene-link" type="button" data-scene-action="compare">Сравнить</button>
+          </div>
+          <div class="pzdrk-scene-card-body">${renderSceneLines(useCases.length ? useCases : risks, 'Сценарии применения и ограничения появятся после раскладки секций.')}</div>
+        </article>
+        <article class="pzdrk-scene-card" data-scene-card="verify">
+          <div class="pzdrk-scene-card-head">
+            <div class="pzdrk-scene-card-title">Что проверить дальше</div>
+            <button class="pzdrk-scene-link" type="button" data-scene-action="sources">Проверки</button>
+          </div>
+          <div class="pzdrk-scene-card-body">${renderSceneLines(risks, 'Здесь появятся ограничения, спорные места и следующие проверки.')}</div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function mountSummarySceneBoard(note, summaryObj) {
+  if (!note || !note.isConnected || !summaryObj || typeof summaryObj !== 'object') return;
+  const summaryBody = note.querySelector('.pzdrk-summary-body');
+  if (!summaryBody) return;
+  const nextHtml = renderSummarySceneBoard(summaryObj);
+  if (!nextHtml) return;
+
+  const existing = summaryBody.querySelector('[data-summary-scene]');
+  if (existing) existing.remove();
+  summaryBody.insertAdjacentHTML('afterbegin', nextHtml);
+}
+
+function bindSummarySceneBoard(note, summaryObj) {
+  if (!note || !note.isConnected) return;
+  const board = note.querySelector('[data-summary-scene]');
+  if (!board) return;
+
+  board.querySelectorAll('[data-scene-prompt]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        await copyTextToClipboard(btn.getAttribute('data-scene-prompt') || '');
+        showToast('📋 Запрос скопирован');
+      } catch (error) {
+        showToast('📋 ' + (error?.message || 'ошибка'));
+      }
+    });
+  });
+
+  const allPrompts = ensureConcretePrompts(summaryObj, { title: summaryObj?.title }).map(item => item.prompt).filter(Boolean).join('\n\n');
+  const copyAll = board.querySelector('[data-scene-copy-prompts]');
+  if (copyAll && copyAll.dataset.bound !== 'true') {
+    copyAll.dataset.bound = 'true';
+    copyAll.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!allPrompts) return;
+      try {
+        await copyTextToClipboard(allPrompts);
+        showToast('📋 Пакет запросов скопирован');
+      } catch (error) {
+        showToast('📋 ' + (error?.message || 'ошибка'));
+      }
+    });
+  }
+
+  board.querySelectorAll('[data-scene-scroll]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sec = btn.getAttribute('data-scene-scroll') || '';
+      const target = note.querySelector(`.pzdrk-section[data-sec="${(globalThis.CSS?.escape ? CSS.escape(sec) : sec)}"] .pzdrk-section-title`);
+      const contentEl = note.querySelector('.pzdrk-note-content');
+      if (!target || !contentEl) return;
+      const cRect = contentEl.getBoundingClientRect();
+      const tRect = target.getBoundingClientRect();
+      contentEl.scrollBy({ top: (tRect.top - cRect.top) - 26, behavior: 'smooth' });
+    });
+  });
+
+  board.querySelectorAll('[data-scene-action]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const actionType = btn.getAttribute('data-scene-action') || '';
+      if (actionType === 'mindmap') {
+        await generateMindmap(note);
+        return;
+      }
+      const action = getDefaultActions().find(item => item.type === actionType);
+      if (!action) return;
+      await executeAction(action, { sourceNote: note });
+    });
+  });
 }
 
 function summaryJsonToMarkdown(summaryObj) {
@@ -2616,32 +3752,32 @@ function summaryJsonToMarkdown(summaryObj) {
   const title = String(summaryObj.title || '').trim();
   if (title) out.push(`# ${title}`);
 
-  const sections = Array.isArray(summaryObj.sections) ? summaryObj.sections : [];
+  const sections = orderSummarySections(summaryObj);
   for (const s of sections) {
     const head = `${String(s.emoji || '').trim()} ${String(s.label || '').trim()}`.trim();
     if (head) out.push(`\n## ${head}`);
     const left = Array.isArray(s.left) ? s.left : [];
     left.slice(0, 24).forEach(b => {
-      const line = String(b || '').trim();
+      const line = normalizeBulletLine(b);
       if (line) out.push(`- ${line}`);
     });
     const actions = Array.isArray(s.actions) ? s.actions : [];
     actions.slice(0, 6).forEach(a => {
-      const line = String(a || '').trim();
+      const line = normalizeBulletLine(a);
       if (line) out.push(`- ${line}`);
     });
   }
 
   const til = Array.isArray(summaryObj.til) ? summaryObj.til : [];
   if (til.length) {
-    out.push(`\n## 💡 TIL`);
+    out.push(`\n## 💡 ВЫЯСНИЛОСЬ`);
     til.slice(0, 12).forEach(t => {
-      const line = String(t || '').trim();
+      const line = normalizeBulletLine(t);
       if (line) out.push(`- ${line}`);
     });
   }
 
-  const actions = Array.isArray(summaryObj.actions) ? summaryObj.actions : [];
+  const actions = collectSummaryActions(summaryObj, 12);
   if (actions.length) {
     out.push(`\n## ⚡ ДЕЙСТВИЯ`);
     actions.slice(0, 12).forEach(a => {
@@ -2650,11 +3786,20 @@ function summaryJsonToMarkdown(summaryObj) {
     });
   }
 
+  const prompts = ensureConcretePrompts(summaryObj, { title });
+  if (prompts.length) {
+    out.push(`\n## 🎯 ГОТОВЫЕ ЗАПРОСЫ`);
+    prompts.slice(0, 8).forEach(p => {
+      const line = `${p.title}${p.desc ? ` — ${p.desc}` : ''}`;
+      if (line) out.push(`- ${line}`);
+    });
+  }
+
   return out.join('\n').trim();
 }
 
 function renderRightBlock(right) {
-  const r = (right && typeof right === 'object') ? right : {};
+  const r = normalizeSummaryRightBlock(right);
   const commentary = Array.isArray(r.commentary) ? r.commentary : [];
   const terms = Array.isArray(r.terms) ? r.terms : [];
   const entities = Array.isArray(r.entities) ? r.entities : [];
@@ -2663,55 +3808,58 @@ function renderRightBlock(right) {
   let html = '';
 
   if (commentary.length) {
-    html += `<div class="pzdrk-section-subtitle">Комментарий</div>`;
-    html += `<div>${formatRichText(commentary.join('\n\n'))}</div>`;
+    html += renderSummarySidecard('Комментарий', formatRichText(commentary.join('\n\n')), 'neutral');
   }
 
   if (terms.length) {
-    html += `<div class="pzdrk-section-subtitle">Термины</div>`;
     const lines = terms.slice(0, 10).map(t => {
-      const term = String(t?.term || '').trim();
-      const def = String(t?.definition || '').trim();
+      const term = normalizeSummaryParagraph(t?.term, 80);
+      const def = normalizeSummaryParagraph(t?.definition, 260);
       if (!term && !def) return '';
       return `- **${term || '—'}**: ${def}`;
     }).filter(Boolean).join('\n');
-    html += `<div>${formatRichText(lines)}</div>`;
+    html += renderSummarySidecard('Термины и оригинальные названия', formatRichText(lines), 'neutral');
   }
 
   if (entities.length) {
-    html += `<div class="pzdrk-section-subtitle">Сущности</div>`;
     const lines = entities.slice(0, 12).map(e => {
-      const name = String(e?.name || '').trim();
-      const ctx = String(e?.context || '').trim();
-      const q = String(e?.exaQuery || '').trim();
+      const name = normalizeSummaryParagraph(e?.name, 80);
+      const ctx = normalizeSummaryParagraph(e?.context, 220);
+      const q = normalizeSummaryParagraph(e?.exaQuery, 160);
       if (!name) return '';
       const tag = `[[entity:${name}]]`;
       const hint = ctx ? ` — ${ctx}` : '';
-      const qHint = q ? ` *(Exa: ${q})*` : '';
+      const qHint = q ? ` *(поисковый запрос: ${q})*` : '';
       return `- ${tag}${hint}${qHint}`;
     }).filter(Boolean).join('\n');
-    html += `<div>${formatRichText(lines)}</div>`;
+    html += renderSummarySidecard('Сущности и имена', formatRichText(lines), 'neutral');
   }
 
   if (refs.length) {
-    html += `<div class="pzdrk-section-subtitle">Ссылки / что проверить</div>`;
     const lines = refs.slice(0, 10).map(rf => {
-      const q = String(rf?.query || '').trim();
-      const why = String(rf?.why || '').trim();
+      const q = normalizeSummaryParagraph(rf?.query, 180);
+      const why = normalizeSummaryParagraph(rf?.why, 180);
       if (!q) return '';
       return `- ${q}${why ? ` — *${why}*` : ''}`;
     }).filter(Boolean).join('\n');
-    html += `<div>${formatRichText(lines)}</div>`;
+    html += renderSummarySidecard('Что проверить', formatRichText(lines), refs.length > 2 ? 'waiting' : 'neutral');
   }
 
-  return html || `<div style="opacity:0.7">⏳</div>`;
+  return html || renderStateCard({
+    tone: 'waiting',
+    icon: '⏳',
+    title: 'Правая колонка ещё догружается',
+    body: 'Термины, сущности и проверки появятся после добора параллельных проходов.',
+    compact: true
+  });
 }
 
 function renderSummaryJsonHtml(summaryObj) {
   if (!summaryObj || typeof summaryObj !== 'object') return '';
-  const sections = Array.isArray(summaryObj.sections) ? summaryObj.sections : [];
+  const sections = orderSummarySections(summaryObj);
   const til = Array.isArray(summaryObj.til) ? summaryObj.til : [];
-  const actions = Array.isArray(summaryObj.actions) ? summaryObj.actions : [];
+  const actions = collectSummaryActions(summaryObj, 12);
+  const prompts = ensureConcretePrompts(summaryObj, { title: summaryObj.title });
 
   let html = '';
 
@@ -2723,7 +3871,7 @@ function renderSummaryJsonHtml(summaryObj) {
     const secId = `pzdrk-sec-${slugifyForId(key)}`;
 
     const left = Array.isArray(s.left) ? s.left : [];
-    const leftText = left.map(b => `- ${String(b || '').trim()}`).filter(l => l.trim() !== '-').join('\n');
+    const leftText = left.map(b => `- ${normalizeBulletLine(b)}`).filter(l => l.trim() !== '-').join('\n');
     const rightHtml = renderRightBlock(s.right);
 
     html += `
@@ -2738,32 +3886,63 @@ function renderSummaryJsonHtml(summaryObj) {
   }
 
   if (til.length) {
-    const tilText = til.map(t => `- ${String(t || '').trim()}`).filter(l => l.trim() !== '-').join('\n');
+    const tilText = til.map(t => `- ${normalizeBulletLine(t)}`).filter(l => l.trim() !== '-').join('\n');
     html += `
       <div class="pzdrk-section" data-sec="til">
-        <div class="pzdrk-section-title" id="pzdrk-sec-til">💡 TIL</div>
+        <div class="pzdrk-section-title" id="pzdrk-sec-til">💡 ВЫЯСНИЛОСЬ</div>
         <div class="pzdrk-two-col">
           <div class="pzdrk-col-left">${formatRichText(tilText)}</div>
-          <div class="pzdrk-col-right" data-sec="til"><div style="opacity:0.7">—</div></div>
+          <div class="pzdrk-col-right" data-sec="til">${renderSummaryAsidePlaceholder('Дополнений справа нет', 'Ключевые наблюдения уже сформулированы в основном списке.')}</div>
         </div>
       </div>
     `;
   }
 
   if (actions.length) {
-    const actText = actions.map(a => `- ${String(a || '').trim()}`).filter(l => l.trim() !== '-').join('\n');
+    const actText = actions.map(a => `- ${normalizeBulletLine(a)}`).filter(l => l.trim() !== '-').join('\n');
     html += `
       <div class="pzdrk-section" data-sec="actions">
         <div class="pzdrk-section-title" id="pzdrk-sec-actions">⚡ ДЕЙСТВИЯ</div>
         <div class="pzdrk-two-col">
           <div class="pzdrk-col-left">${formatRichText(actText)}</div>
-          <div class="pzdrk-col-right" data-sec="actions"><div style="opacity:0.7">—</div></div>
+          <div class="pzdrk-col-right" data-sec="actions">${renderSummaryAsidePlaceholder('Можно выполнять как есть', 'Если нужны уточнения, они появятся здесь в виде терминов, рисков или проверок.')}</div>
         </div>
       </div>
     `;
   }
 
+  html += `
+    <div class="pzdrk-section" data-sec="concrete-prompts">
+      <div class="pzdrk-section-title" id="pzdrk-sec-concrete-prompts">🎯 ГОТОВЫЕ ЗАПРОСЫ</div>
+      <div class="pzdrk-section-intro">Восемь конкретных prompt-ов, которые можно сразу копировать и запускать без дополнительной раскачки.</div>
+      <div class="pzdrk-concrete-prompts" data-concrete-prompts>
+        ${renderConcretePromptCards(prompts)}
+      </div>
+    </div>
+  `;
+
   return html;
+}
+
+function bindConcretePromptCards(container) {
+  if (!container) return;
+  container.querySelectorAll('.pzdrk-prompt-card').forEach(card => {
+    if (card.dataset.bound === 'true') return;
+    card.dataset.bound = 'true';
+
+    card.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const prompt = card.getAttribute('data-concrete-prompt') || '';
+      if (!prompt) return;
+      try {
+        await copyTextToClipboard(prompt);
+        showToast('📋 Запрос скопирован');
+      } catch (err) {
+        showToast('📋 Запрос: ' + (err?.message || 'ошибка'));
+      }
+    });
+  });
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -2794,9 +3973,9 @@ async function enrichSummarySections(note, summaryJson, pageContent, contextText
   const system = String(settings?.sectionEnrichPrompt || PROMPTS.sectionEnrich || '').trim();
   const url = window.location.href;
   const title = document.title;
-  const pageSnippet = String(pageContent || '').substring(0, 8000);
+  const pageSnippet = clipPromptInput(pageContent, SECTION_ENRICH_INPUT_CHARS);
 
-  await runWithConcurrency(sections, 3, async (s, i) => {
+  await runWithConcurrency(sections, getAdaptiveParallelLimit(settings, 4, 5), async (s, i) => {
     if (!note.isConnected) return;
 
     const key = String(s?.key || '').trim() || slugifyForId(`${s?.emoji || ''} ${s?.label || ''}`);
@@ -2805,7 +3984,7 @@ async function enrichSummarySections(note, summaryJson, pageContent, contextText
 
     const userPrompt = `URL: ${url}\nTITLE: ${title}\n\n[BROWSER CONTEXT]\n${contextText}\n\n[SECTION]\nkey=${key}\nlabel=${label}\n\n[LEFT BULLETS]\n${left.map(x => `- ${String(x || '').trim()}`).join('\n')}\n\n[PAGE SNIPPET]\n${pageSnippet}`;
 
-    const raw = await callGroq(userPrompt, system, { temperature: 0.35, max_tokens: 1500 });
+    const raw = await callGroq(userPrompt, system, { temperature: 0.35, max_tokens: getTaskMaxTokens(settings, 1200) });
     const obj = parseJsonObject(raw);
     const right = obj?.right;
     if (!right || typeof right !== 'object') return;
@@ -2930,7 +4109,7 @@ function chunkTextByTokens(text, targetTokens = 1200, maxChunks = 80) {
 }
 
 function normalizeBulletLine(s) {
-  return String(s || '')
+  return extractTextCandidate(s)
     .replace(/^[-•]\s+/, '')
     .trim()
     .replace(/\s+/g, ' ')
@@ -3062,9 +4241,14 @@ function buildMapReduceSummaryJson(params) {
   const merged = (params?.merged && typeof params.merged === 'object') ? params.merged : { bullets: [], actions: [], risks: [], terms: [], entities: [] };
 
   const bullets = Array.isArray(merged.bullets) ? merged.bullets : [];
-  const core = bullets.slice(0, 10);
-  const keyPoints = bullets.slice(10, 34);
-  const details = bullets.slice(34, 70);
+  const tldr = bullets.slice(0, 4);
+  const core = bullets.slice(0, 8);
+  const mechanics = bullets.slice(8, 18);
+  const implications = bullets.slice(18, 28);
+  const usage = bullets.slice(28, 38);
+  const details = bullets.slice(38, 70);
+  const automation = Array.isArray(merged.actions) ? merged.actions.slice(0, 8) : [];
+  const risks = Array.isArray(merged.risks) ? merged.risks.slice(0, 16) : [];
 
   const toc = headings
     .slice(0, 14)
@@ -3079,14 +4263,26 @@ function buildMapReduceSummaryJson(params) {
 
   const terms = Array.isArray(merged.terms) ? merged.terms : [];
   const entities = Array.isArray(merged.entities) ? merged.entities : [];
+  const verify = [
+    ...entities.slice(0, 4).map(e => normalizeBulletLine(`Проверить [[entity:${e.name}]]${e.context ? ` — ${e.context}` : ''}`)),
+    ...terms.slice(0, 4).map(t => normalizeBulletLine(`Уточнить [[term:${t.term}]]${t.definition ? ` — ${t.definition}` : ''}`)),
+    ...risks.slice(0, 4).map(item => normalizeBulletLine(`Проверить спорное место: ${item}`))
+  ].filter(Boolean).slice(0, 10);
 
   return {
     title,
     meta: ranking,
     sections: [
       {
+        key: 'tldr',
+        emoji: '✳️',
+        label: 'TL;DR',
+        left: tldr.length ? tldr : core.slice(0, 4),
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      },
+      {
         key: 'core',
-        emoji: '🧠',
+        emoji: '📌',
         label: 'СУТЬ',
         left: core,
         right: { commentary: [], terms: terms.slice(0, 8), entities: entities.slice(0, 8), refs: [] }
@@ -3099,17 +4295,52 @@ function buildMapReduceSummaryJson(params) {
         right: { commentary: [], terms: [], entities: [], refs: [] }
       },
       {
-        key: 'points',
-        emoji: '🎯',
-        label: 'КЛЮЧЕВЫЕ ТЕЗИСЫ',
-        left: keyPoints.length ? keyPoints : core,
+        key: 'mechanics',
+        emoji: '⚙️',
+        label: 'МЕХАНИЗМЫ',
+        left: mechanics.length ? mechanics : core,
         right: { commentary: [], terms: terms.slice(8, 14), entities: entities.slice(8, 14), refs: [] }
+      },
+      {
+        key: 'implications',
+        emoji: '🧩',
+        label: 'ЗАЧЕМ ЭТО ВАЖНО',
+        left: implications.length ? implications : mechanics.length ? mechanics.slice(0, 8) : core,
+        right: { commentary: [], terms: terms.slice(14, 18), entities: entities.slice(14, 18), refs: [] }
+      },
+      {
+        key: 'usage',
+        emoji: '🛠',
+        label: 'ПРИМЕНЕНИЕ',
+        left: usage.length ? usage : implications.length ? implications.slice(0, 8) : core,
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      },
+      {
+        key: 'automation',
+        emoji: '🤖',
+        label: 'АВТОМАТИЗАЦИИ',
+        left: automation.length ? automation : usage.length ? usage.slice(0, 6) : core.slice(0, 6),
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      },
+      {
+        key: 'open',
+        emoji: '❓',
+        label: 'ОТКРЫТЫЕ ВОПРОСЫ',
+        left: risks,
+        right: { commentary: [], terms: [], entities: [], refs: [] }
+      },
+      {
+        key: 'verify',
+        emoji: '🧪',
+        label: 'ЧТО ПРОВЕРИТЬ ДАЛЬШЕ',
+        left: verify.length ? verify : risks.slice(0, 8),
+        right: { commentary: [], terms: [], entities: [], refs: [] }
       },
       {
         key: 'risks',
         emoji: '⚠️',
-        label: 'РИСКИ / ВОПРОСЫ',
-        left: (merged.risks || []).slice(0, 16),
+        label: 'РИСКИ / НЕЯСНОСТИ',
+        left: risks,
         right: { commentary: [], terms: [], entities: [], refs: [] }
       },
       {
@@ -3121,7 +4352,8 @@ function buildMapReduceSummaryJson(params) {
       }
     ],
     til: [],
-    actions: (merged.actions || []).slice(0, 14)
+    actions: (merged.actions || []).slice(0, 14),
+    concrete_prompts: []
   };
 }
 
@@ -3129,8 +4361,9 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
   const contentEl = note?.querySelector?.('.pzdrk-note-content');
   if (!note || !note.isConnected || !contentEl) throw new Error('Note missing');
 
-  const maxOut = Math.max(256, Math.min(1200, Number(settings?.targetMaxOutputTokens) || 500));
-  const limit = Math.max(1, Math.min(200, Number(settings?.maxParallelRequests) || 12));
+  const maxOut = getTaskMaxTokens(settings, 1100, 256);
+  const limit = getAdaptiveParallelLimit(settings, 6, 8);
+  const tilPromise = generateTILList(pageContent, contextText).catch(() => []);
 
   const chunks = chunkTextByTokens(pageContent, 1200, 80);
   const total = chunks.length;
@@ -3155,7 +4388,7 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
       <div class="pzdrk-summary-body">
         <div class="pzdrk-section">
           <div class="pzdrk-section-title">⚡ Map‑reduce</div>
-          <div style="opacity:0.75">Chunks: ${done}/${total} (${pct}%) • Target out: ${maxOut}</div>
+          <div style="opacity:0.75">Chunks: ${done}/${total} (${pct}%) • Lanes: ${limit} • Target out: ${maxOut}</div>
           <div style="margin-top:10px; white-space:pre-wrap;">${escapeHtml(previewBullets || '…')}</div>
         </div>
       </div>`;
@@ -3177,7 +4410,7 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
 
   // Fill TIL (best effort, small)
   try {
-    summaryJson.til = await generateTILList(pageContent, contextText).catch(() => []);
+    summaryJson.til = await tilPromise;
   } catch (e) {
     summaryJson.til = [];
   }
@@ -3188,12 +4421,15 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
 async function summarizePage() {
   if (isProcessing) return;
   isProcessing = true;
-  
+
   const settings = await getSettings();
-  const pageContent = extractPageContent({ maxChars: settings.mapReduceEnabled ? 250_000 : 18_000 });
+  const pageContent = extractPageContent({ maxChars: settings.mapReduceEnabled ? 250_000 : 24_000 });
   const headings = extractHeadings();
-  const shouldMapReduce = settings.mapReduceEnabled !== false && estimateTokens(pageContent) > 9000;
-  
+  const shouldMapReduce = settings.mapReduceEnabled !== false && estimateTokens(pageContent) > MAP_REDUCE_THRESHOLD_TOKENS;
+  const titleSeed = clipPromptInput(pageContent, 1200);
+  const rankingSeed = clipPromptInput(pageContent, 2200);
+  const directSummaryContent = clipPromptInput(pageContent, DIRECT_SUMMARY_INPUT_CHARS);
+
   // Check cache
   const cached = getCache(window.location.href);
   if (cached?.summary) {
@@ -3219,16 +4455,19 @@ async function summarizePage() {
     const tokenBadge = note.querySelector('.pzdrk-summary-tokens');
     if (tokenBadge) tokenBadge.textContent = summaryTokenCount;
 
-    lastSummaryData = { content: lastSummaryContent, headings, searchResults: [], ranking: cachedJson?.meta || {}, pageContent, summaryJson: cachedJson };
-    buildNoteNav(note);
-    setupHoverInteractions(note);
-    createFloatingHints(note);
-    maybeAutoSpeakSummary(settings);
+	    lastSummaryData = { content: lastSummaryContent, headings, searchResults: [], ranking: cachedJson?.meta || {}, pageContent, summaryJson: cachedJson };
+	    if (cachedJson) mountSummarySceneBoard(note, cachedJson);
+	    buildNoteNav(note);
+	    setupHoverInteractions(note);
+	    bindConcretePromptCards(note);
+	    bindSummarySceneBoard(note, cachedJson);
+	    createFloatingHints(note);
+	    maybeAutoSpeakSummary(settings);
     isProcessing = false;
     showToast('⚡ Из кэша');
     return;
   }
-  
+
   // Create note (COLLAPSED by default)
   const note = createNote({
     title: 'Анализирую...',
@@ -3245,25 +4484,47 @@ async function summarizePage() {
   try {
     // PARALLEL REQUESTS (fast path)
     const ctxPromise = getBrowserContext();
-    const titlePromise = callGroq(PROMPTS.generateTitle.replace('{content}', pageContent.substring(0, 1000)), 'Только заголовок');
-    const rankingPromise = callGroq(PROMPTS.pageRanking.replace('{content}', pageContent.substring(0, 2000)), 'Только JSON');
+    const titlePromise = callGroq(
+      PROMPTS.generateTitle.replace('{content}', titleSeed),
+      'Только заголовок',
+      { temperature: 0.2, max_tokens: getTaskMaxTokens(settings, 96) }
+    );
+    const rankingPromise = callGroq(
+      PROMPTS.pageRanking.replace('{content}', rankingSeed),
+      'Только JSON',
+      { temperature: 0.15, max_tokens: getTaskMaxTokens(settings, 220) }
+    );
 
     // Non-blocking (fill later)
     const searchPromise = callExa(document.title).catch(() => []);
-    
+    const workflowsPromise = (async () => {
+      try {
+        const wfResult = await callGroq(
+          PROMPTS.workflowSuggestions.replace('{content}', rankingSeed),
+          'Только JSON',
+          { temperature: 0.2, max_tokens: getTaskMaxTokens(settings, 1100, 256) }
+        );
+        const m = wfResult.match(/\[[\s\S]*\]/);
+        return m ? JSON.parse(m[0]) : [];
+      } catch (e) {
+        return [];
+      }
+    })();
+
     const [ctx, titleResult, rankingResult] = await Promise.all([ctxPromise, titlePromise, rankingPromise]);
 
     browserContext = ctx;
     const contextText = formatBrowserContext(ctx);
-    
+    const tilPromise = generateTILList(pageContent, contextText).catch(() => []);
+
     // Parse ranking
     let ranking = { depth: 3, domain: 'Other', tags: [] };
-    try { const m = rankingResult.match(/\{[\s\S]*\}/); if (m) ranking = JSON.parse(m[0]); } catch (e) {}
-    
+    try { const m = rankingResult.match(/\{[\s\S]*\}/); if (m) ranking = JSON.parse(m[0]); } catch (e) { }
+
     // Update title
     const cleanTitle = titleResult.replace(/["\n]/g, '').substring(0, 50);
     note.querySelector('.pzdrk-note-title').textContent = cleanTitle || document.title.substring(0, 30);
-    
+
     // MAIN SUMMARY REQUEST
     let summaryResult = '';
     let summaryJson = null;
@@ -3272,36 +4533,38 @@ async function summarizePage() {
       if (shouldMapReduce) {
         summaryJson = await summarizeMapReduce({ note, pageContent, headings, contextText, settings, ranking, cleanTitle });
       } else {
-      const summaryPrompt = (settings.summaryJsonPrompt || PROMPTS.summaryJson)
-        .replace('{tags}', settings.tags.join(' '))
-        .replace('{browserContext}', contextText);
-
-      const raw = await callGroq(
-        `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${pageContent.substring(0, 14000)}`,
-        summaryPrompt,
-        { temperature: 0.25 }
-      );
-
-      summaryJson = parseJsonObject(raw);
-
-      if (summaryJson && typeof summaryJson === 'object') {
-        if (!Array.isArray(summaryJson.sections)) summaryJson.sections = [];
-        if (!Array.isArray(summaryJson.til) || summaryJson.til.length < 4) {
-          summaryJson.til = await generateTILList(pageContent, contextText).catch(() => summaryJson.til || []);
-        }
-      }
-
-      // Hard fallback to markdown if JSON parse fails
-      if (!summaryJson) {
-        const fallbackPrompt = (settings.summaryPrompt || PROMPTS.summary)
+        const summaryPrompt = (settings.summaryJsonPrompt || PROMPTS.summaryJson)
           .replace('{tags}', settings.tags.join(' '))
           .replace('{browserContext}', contextText);
-        summaryResult = await callGroq(
-          `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${pageContent.substring(0, 14000)}`,
-          fallbackPrompt
+
+        const raw = await callGroq(
+          `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${directSummaryContent}`,
+          summaryPrompt,
+          { temperature: 0.25, max_tokens: getTaskMaxTokens(settings, 2200, 256) }
         );
-        summaryResult = await ensureTILBullets(summaryResult, pageContent, contextText).catch(() => summaryResult);
-      }
+
+        summaryJson = parseJsonObject(raw);
+
+        if (summaryJson && typeof summaryJson === 'object') {
+          if (!Array.isArray(summaryJson.sections)) summaryJson.sections = [];
+          if (!Array.isArray(summaryJson.til) || summaryJson.til.length < 4) {
+            summaryJson.til = await tilPromise.catch(() => summaryJson.til || []);
+          }
+          ensureConcretePrompts(summaryJson, { title: cleanTitle || document.title });
+        }
+
+        // Hard fallback to markdown if JSON parse fails
+        if (!summaryJson) {
+          const fallbackPrompt = (settings.summaryPrompt || PROMPTS.summary)
+            .replace('{tags}', settings.tags.join(' '))
+            .replace('{browserContext}', contextText);
+          summaryResult = await callGroq(
+            `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${directSummaryContent}`,
+            fallbackPrompt,
+            { temperature: 0.3, max_tokens: getTaskMaxTokens(settings, 1800, 256) }
+          );
+          summaryResult = await ensureTILBullets(summaryResult, pageContent, contextText).catch(() => summaryResult);
+        }
       }
     } else {
       if (shouldMapReduce) {
@@ -3313,65 +4576,61 @@ async function summarizePage() {
           .replace('{browserContext}', contextText);
 
         summaryResult = await callGroq(
-          `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${pageContent.substring(0, 14000)}`,
-          summaryPrompt
+          `URL: ${window.location.href}\nЗаголовок: ${document.title}\n\nКонтент:\n${directSummaryContent}`,
+          summaryPrompt,
+          { temperature: 0.3, max_tokens: getTaskMaxTokens(settings, 1800, 256) }
         );
 
         summaryResult = await ensureTILBullets(summaryResult, pageContent, contextText).catch(() => summaryResult);
       }
     }
-    
-    // Related/workflows are filled asynchronously to improve perceived speed
-    const workflowsPromise = (async () => {
-      try {
-        const wfResult = await callGroq(PROMPTS.workflowSuggestions.replace('{content}', pageContent.substring(0, 2000)), 'Только JSON');
-        const m = wfResult.match(/\[[\s\S]*\]/);
-        return m ? JSON.parse(m[0]) : [];
-      } catch (e) {
-        return [];
-      }
-    })();
 
     lastSummaryContent = summaryJson ? summaryJsonToMarkdown(summaryJson) : summaryResult;
     summaryTokenCount = estimateTokens(lastSummaryContent);
     conversationHistory = [{ role: 'assistant', content: lastSummaryContent }];
-    
+
     // Update token badge
     const tokenBadge = note.querySelector('.pzdrk-summary-tokens');
     if (tokenBadge) tokenBadge.textContent = summaryTokenCount;
-    
+
     // Build content
     let html = buildMetaHtml(ranking);
 
     if (summaryJson) {
       summaryJson.meta = ranking;
+      ensureConcretePrompts(summaryJson, { title: cleanTitle || document.title });
       html += `<div class="pzdrk-summary-body">${renderSummaryJsonHtml(summaryJson)}</div>`;
     } else {
       html += `<div class="pzdrk-summary-body">${formatRichText(summaryResult)}</div>`;
     }
     // Related placeholder (filled later)
     const relatedId = `pzdrk-related-${note.dataset.noteId || Date.now()}`;
-    html += `<div class="pzdrk-related-section" id="${relatedId}"><div class="pzdrk-section-title">🔗 Похожее & Next Steps</div><div style="opacity:0.7">⏳ Загружаю…</div></div>`;
-    
+    html += `<div class="pzdrk-related-section" id="${relatedId}"><div class="pzdrk-section-title">🔗 Похожее & Next Steps</div>${renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Подтягиваю похожие сценарии', body: 'Параллельные lanes собирают workflow-плитки и дополнительные next steps.', compact: true })}</div>`;
+
     note.querySelector('.pzdrk-note-content').innerHTML = html;
     note.classList.remove('loading');
 
     buildNoteNav(note);
     setupHoverInteractions(note);
-    
+    bindConcretePromptCards(note);
+    if (summaryJson) {
+      mountSummarySceneBoard(note, summaryJson);
+      bindSummarySceneBoard(note, summaryJson);
+    }
+
     // Cache
     if (summaryJson) setCache(window.location.href, summaryJson, 'json');
     else setCache(window.location.href, summaryResult, 'markdown');
-    
+
     // Right-side actions (icon + text) anchored to this note
     createFloatingHints(note);
-    
+
     // Store data for mindmap/challenge (searchResults filled later)
     lastSummaryData = { content: lastSummaryContent, headings, searchResults: [], ranking, pageContent, summaryJson };
 
     // Optional auto-speak (best effort; may be blocked by autoplay policy)
     maybeAutoSpeakSummary(settings);
-    
+
     // ALWAYS send to Slack (no toggle)
     sendToSlack({
       url: window.location.href,
@@ -3389,36 +4648,57 @@ async function summarizePage() {
           if (!note.isConnected) return;
           setCache(window.location.href, summaryJson, 'json');
         })
-        .catch(() => {});
+        .catch(() => { });
     }
 
-    // Fill related/workflows async
-    Promise.all([searchPromise, workflowsPromise]).then(([searchResults, workflowSuggestions]) => {
+    // Fill related/workflows progressively so one slow lane does not block the other.
+    const relatedState = {
+      searchResults: [],
+      workflowSuggestions: [],
+      searchDone: false,
+      workflowsDone: false
+    };
+
+    const renderRelatedSection = () => {
       try {
         if (!note.isConnected) return;
         const esc = (globalThis.CSS?.escape ? CSS.escape(relatedId) : relatedId);
         const relatedEl = note.querySelector(`#${esc}`);
         if (!relatedEl) return;
 
-        // Update lastSummaryData in-place
-        if (lastSummaryData) lastSummaryData.searchResults = Array.isArray(searchResults) ? searchResults : [];
+        const sr = Array.isArray(relatedState.searchResults) ? relatedState.searchResults : [];
+        const wf = Array.isArray(relatedState.workflowSuggestions) ? relatedState.workflowSuggestions : [];
 
-        let relHtml = `<div class="pzdrk-section-title">🔗 Похожее & Next Steps</div>`;
+        if (lastSummaryData) lastSummaryData.searchResults = sr;
 
-        const sr = Array.isArray(searchResults) ? searchResults : [];
+        let relHtml = `<div class="pzdrk-section-title">🔗 Похожее и следующие шаги</div>`;
+
         if (sr.length) {
           sr.slice(0, 4).forEach(r => {
             relHtml += `<a href="${escapeAttr(r.url)}" target="_blank" class="pzdrk-related-link">${escapeHtml(r.title || r.url)}</a>`;
           });
         }
 
-        const wf = Array.isArray(workflowSuggestions) ? workflowSuggestions : [];
+        if (summaryJson && wf.length) {
+          const normalizedPrompts = wf
+            .map(normalizeConcretePromptEntry)
+            .filter(Boolean)
+            .slice(0, 8);
+          if (normalizedPrompts.length) {
+            summaryJson.concrete_prompts = normalizedPrompts;
+            const promptEl = note.querySelector('[data-concrete-prompts]');
+            if (promptEl) {
+              promptEl.innerHTML = renderConcretePromptCards(summaryJson.concrete_prompts);
+            }
+          }
+        }
+
         if (wf.length) {
           relHtml += `<div class="pzdrk-related-grid">`;
           wf.slice(0, 12).forEach(w => {
             relHtml += `
               <div class="pzdrk-workflow-tile" data-prompt="${escapeAttr(w.prompt || '')}">
-                <div class="pzdrk-workflow-title">${escapeHtml(w.title || 'Workflow')}</div>
+                <div class="pzdrk-workflow-title">${escapeHtml(w.title || 'Сценарий')}</div>
                 <div class="pzdrk-workflow-desc">${escapeHtml(w.desc || '')}</div>
               </div>
             `;
@@ -3427,19 +4707,21 @@ async function summarizePage() {
         }
 
         if (!sr.length && !wf.length) {
-          relHtml += `<div style="opacity:0.7">—</div>`;
+          relHtml += (relatedState.searchDone && relatedState.workflowsDone)
+            ? renderStateCard({ tone: 'muted', icon: '·', title: 'Дополнений пока нет', body: 'Сценарии и похожие материалы не дали достаточно уверенных совпадений.', compact: true })
+            : renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Параллельные потоки ещё работают', body: 'Скоро сюда добавятся похожие кейсы и готовые сценарии действий.', compact: true });
         }
 
         relatedEl.innerHTML = relHtml;
+        bindConcretePromptCards(note);
 
-        // Setup workflow tile clicks
         relatedEl.querySelectorAll('.pzdrk-workflow-tile').forEach(tile => {
           tile.addEventListener('click', async () => {
             const prompt = tile.dataset.prompt;
-            const newNote = createNote({ title: 'Workflow', type: 'action', content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div></div>', collapsed: false, loading: true });
+            const newNote = createNote({ title: 'Сценарий', type: 'action', content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div></div>', collapsed: false, loading: true });
             newNote.dataset.pinned = 'true';
             try {
-              const res = await callGroq(prompt, STYLE_RULES);
+              const res = await callGroq(prompt, STYLE_RULES, { temperature: 0.3, max_tokens: getTaskMaxTokens(settings, 1800, 256) });
               newNote.querySelector('.pzdrk-note-content').innerHTML = formatRichText(res);
               newNote.classList.remove('loading');
               setupHoverInteractions(newNote);
@@ -3450,18 +4732,40 @@ async function summarizePage() {
           });
         });
 
-        // Re-bind link previews/tooltips inside updated section
+        if (summaryJson) setCache(window.location.href, summaryJson, 'json');
         setupHoverInteractions(note);
       } catch (e) {
         // ignore
       }
-    });
-    
+    };
+
+    searchPromise
+      .then((searchResults) => {
+        relatedState.searchResults = Array.isArray(searchResults) ? searchResults : [];
+        relatedState.searchDone = true;
+        renderRelatedSection();
+      })
+      .catch(() => {
+        relatedState.searchDone = true;
+        renderRelatedSection();
+      });
+
+    workflowsPromise
+      .then((workflowSuggestions) => {
+        relatedState.workflowSuggestions = Array.isArray(workflowSuggestions) ? workflowSuggestions : [];
+        relatedState.workflowsDone = true;
+        renderRelatedSection();
+      })
+      .catch(() => {
+        relatedState.workflowsDone = true;
+        renderRelatedSection();
+      });
+
   } catch (error) {
     note.querySelector('.pzdrk-note-content').innerHTML = `<div class="pzdrk-error">❌ ${error.message}</div>`;
     note.classList.remove('loading');
   }
-  
+
   isProcessing = false;
 }
 
@@ -3639,6 +4943,27 @@ let commandSystemInitialized = false;
 
 const CUSTOM_COMMANDS_KEY = 'customCommands';
 
+const COMMAND_GROUP_LABELS = {
+  core: 'База',
+  analysis: 'Анализ',
+  structure: 'Структура',
+  ops: 'Операции',
+  publish: 'Публикация',
+  build: 'Сборка',
+  selection: 'Выделение',
+  custom: 'Свои'
+};
+
+function getCommandGroup(cmd) {
+  if (!cmd || typeof cmd !== 'object') return 'custom';
+  if (cmd.scope === 'selection') return 'selection';
+  return String(cmd.group || 'analysis').trim() || 'analysis';
+}
+
+function getCommandGroupLabel(group) {
+  return COMMAND_GROUP_LABELS[String(group || '').trim()] || 'Действия';
+}
+
 function normalizeHotkey(k) {
   return String(k || '').trim().toLowerCase();
 }
@@ -3651,18 +4976,50 @@ function getSelectionText() {
   }
 }
 
-function getCommandContext() {
+function extractSourceNoteContext(sourceNote = null) {
+  if (!sourceNote || !sourceNote.isConnected) return null;
+  const title = String(sourceNote.querySelector('.pzdrk-note-title')?.textContent || '').trim();
+  const rawText = String(sourceNote.querySelector('.pzdrk-note-content')?.innerText || '').trim();
+  const excerpt = clipPromptInput(rawText, Math.max(900, Math.min(COMMAND_CONTEXT_INPUT_CHARS - 500, 3200)));
+  if (!title && !excerpt) return null;
+  return {
+    title,
+    excerpt,
+    summary: clipPromptInput(excerpt || title, 1800)
+  };
+}
+
+function getCommandContext(sourceNote = null) {
   const ctxText = formatBrowserContext(browserContext);
-  const summary = (lastSummaryContent || '').substring(0, 4000);
-  const content = (lastSummaryData?.pageContent || extractPageContent()).substring(0, 8000);
+  const pageSummary = (lastSummaryContent || '').substring(0, 4000);
+  const pageContent = clipPromptInput(lastSummaryData?.pageContent || extractPageContent(), COMMAND_CONTEXT_INPUT_CHARS);
   const selection = getSelectionText();
+  const noteCtx = extractSourceNoteContext(sourceNote);
+  const summary = noteCtx
+    ? clipPromptInput(
+      `ФОКУС-КАРТОЧКА: ${noteCtx.title || 'текущий результат'}\n${noteCtx.summary || '—'}\n\nСВОДКА СТРАНИЦЫ:\n${pageSummary || '—'}`,
+      4000
+    )
+    : pageSummary;
+  const content = noteCtx
+    ? clipPromptInput(
+      `ФОКУС-КАРТОЧКА: ${noteCtx.title || 'текущий результат'}\n${noteCtx.excerpt || '—'}\n\nКОНТЕНТ СТРАНИЦЫ:\n${pageContent || '—'}`,
+      COMMAND_CONTEXT_INPUT_CHARS
+    )
+    : pageContent;
+  const browserContextText = noteCtx
+    ? `${ctxText}\nFOCUSED_CARD: ${noteCtx.title || 'текущая карточка'}`
+    : ctxText;
+
   return {
     url: window.location.href,
     title: document.title,
     summary,
     content,
-    browserContext: ctxText,
-    selection
+    browserContext: browserContextText,
+    selection,
+    noteTitle: noteCtx?.title || '',
+    noteExcerpt: noteCtx?.excerpt || ''
   };
 }
 
@@ -3673,31 +5030,60 @@ function renderTemplate(tpl, ctx) {
     .replaceAll('{summary}', ctx.summary)
     .replaceAll('{content}', ctx.content)
     .replaceAll('{browserContext}', ctx.browserContext)
+    .replaceAll('{noteTitle}', ctx.noteTitle || '')
+    .replaceAll('{noteExcerpt}', ctx.noteExcerpt || '')
     .replaceAll('{selection}', ctx.selection || '');
 }
 
 function getBuiltinCommands() {
   const actionByType = (type) => getDefaultActions().find(a => a.type === type);
+  const buildPromptCommand = (type) => {
+    const action = actionByType(type);
+    if (!action) return null;
+    return {
+      id: type,
+      title: action.title,
+      icon: action.icon,
+      key: String(action.key || '').toLowerCase(),
+      hint: action.hint || '',
+      group: action.group || 'analysis',
+      scope: 'page',
+      pinned: action.pinned !== false,
+      kind: 'builtin',
+      run: (options = {}) => executeAction(action, options)
+    };
+  };
 
   return [
     // Not pinned in rail (they have dedicated top buttons), but available in palette.
-    { id: 'palette', title: 'Command Palette', icon: '⌘', key: '', scope: 'global', pinned: false, kind: 'builtin', run: () => openCommandPalette('') },
-    { id: 'new_command', title: 'Add command', icon: '➕', key: '', scope: 'global', pinned: false, kind: 'builtin', run: () => openCommandPalette('/new ') },
+    { id: 'palette', title: 'Палитра команд', icon: '⌘', key: '', scope: 'global', pinned: false, kind: 'builtin', run: () => openCommandPalette('') },
+    { id: 'new_command', title: 'Добавить команду', icon: '➕', key: '', scope: 'global', pinned: false, kind: 'builtin', run: () => openCommandPalette('/new ') },
 
-    { id: 'summarize', title: 'Summarize', icon: '✦', key: 's', scope: 'page', pinned: true, kind: 'builtin', run: () => summarizePage() },
-    { id: 'translate_page', title: 'Translate page', icon: '🌐', key: 't', scope: 'page', pinned: true, kind: 'builtin', run: () => translatePage() },
-    { id: 'mindmap', title: 'Mindmap', icon: '🗺', key: 'm', scope: 'page', pinned: true, kind: 'builtin', run: () => generateMindmap() },
+    { id: 'summarize', title: 'Сводка', icon: '✦', key: 's', hint: 'Быстрая многослойная выжимка', group: 'core', scope: 'page', pinned: true, kind: 'builtin', run: () => summarizePage() },
+    { id: 'translate_page', title: 'Перевести страницу', icon: '🌐', key: 't', hint: 'Перевести страницу целиком', group: 'core', scope: 'page', pinned: true, kind: 'builtin', run: () => translatePage() },
+    { id: 'mindmap', title: 'Карта', icon: '🗺', key: 'm', hint: 'Структурное дерево темы и экспорт', group: 'core', scope: 'page', pinned: true, kind: 'builtin', run: (options = {}) => generateMindmap(options.sourceNote || null) },
 
-    { id: 'twitter', title: 'Twitter', icon: '🐦', key: '1', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('twitter')) },
-    { id: 'deepdive', title: 'Deep Dive', icon: '🔬', key: '2', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('deepdive')) },
-    { id: 'automation', title: 'Automate', icon: '⚡', key: '3', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('automation')) },
-    { id: 'learning', title: 'Learn', icon: '📚', key: '4', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('learning')) },
-    { id: 'share', title: 'Share', icon: '📤', key: '5', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('share')) },
-    { id: 'challenge', title: 'Challenge', icon: '🎯', key: '6', scope: 'page', pinned: true, kind: 'builtin', run: () => executeAction(actionByType('challenge')) },
+    buildPromptCommand('twitter'),
+    buildPromptCommand('deepdive'),
+    buildPromptCommand('automation'),
+    buildPromptCommand('learning'),
+    buildPromptCommand('share'),
+    buildPromptCommand('challenge'),
+    buildPromptCommand('timeline'),
+    buildPromptCommand('extract'),
+    buildPromptCommand('briefing'),
+    buildPromptCommand('matrix'),
+    buildPromptCommand('sources'),
+    buildPromptCommand('opsplan'),
+    buildPromptCommand('faq'),
+    buildPromptCommand('compare'),
+    buildPromptCommand('localization'),
+    buildPromptCommand('frontendBuilder'),
+    buildPromptCommand('renderHost'),
 
-    { id: 'explain_selection', title: 'Explain selection (ELI5)', icon: '🧠', key: 'e', scope: 'selection', pinned: true, kind: 'builtin', run: () => explainSelection() },
-    { id: 'translate_selection', title: 'Translate selection', icon: '🈂', key: 'r', scope: 'selection', pinned: true, kind: 'builtin', run: () => translateSelection() }
-  ];
+    { id: 'explain_selection', title: 'Объяснить выделение', icon: '🧠', key: 'e', hint: 'Пояснить выделенный фрагмент', group: 'selection', scope: 'selection', pinned: true, kind: 'builtin', run: () => explainSelection() },
+    { id: 'translate_selection', title: 'Перевести выделение', icon: '🈂', key: 'r', hint: 'Перевести выделенный фрагмент', group: 'selection', scope: 'selection', pinned: true, kind: 'builtin', run: () => translateSelection() }
+  ].filter(Boolean);
 }
 
 async function loadCustomCommands() {
@@ -3721,6 +5107,7 @@ async function refreshCommands() {
       kind: 'custom',
       pinned: c.pinned !== false,
       scope: c.scope || 'page',
+      group: c.group || 'custom',
       mode: c.mode || 'note'
     }))
   );
@@ -3735,8 +5122,11 @@ function ensureCommandRail() {
   el.className = 'pzdrk-command-rail';
   el.innerHTML = `
     <div class="pzdrk-rail-top">
-      <button class="pzdrk-rail-btn pzdrk-rail-btn-palette" type="button" title="Command Palette (⌘/Ctrl+K)">⌘</button>
-      <button class="pzdrk-rail-btn pzdrk-rail-btn-new" type="button" title="Add command (/new …)">➕</button>
+      <div class="pzdrk-rail-status" data-rail-status title="Активный режим команд">стр.</div>
+      <div class="pzdrk-rail-top-buttons">
+        <button class="pzdrk-rail-btn pzdrk-rail-btn-palette" type="button" title="Палитра команд (⌘/Ctrl+K)">⌘</button>
+        <button class="pzdrk-rail-btn pzdrk-rail-btn-new" type="button" title="Добавить команду (/new …)">➕</button>
+      </div>
     </div>
     <div class="pzdrk-rail-list"></div>
   `;
@@ -3752,6 +5142,7 @@ function ensureCommandRail() {
 function renderCommandRail() {
   const el = ensureCommandRail();
   const listEl = el.querySelector('.pzdrk-rail-list');
+  const statusEl = el.querySelector('[data-rail-status]');
   if (!listEl) return;
 
   const sel = getSelectionText();
@@ -3775,17 +5166,26 @@ function renderCommandRail() {
     return true;
   });
 
+  el.dataset.scope = hasSel ? 'selection' : 'page';
+  if (statusEl) {
+    statusEl.textContent = hasSel ? 'выд.' : 'стр.';
+    statusEl.title = hasSel
+      ? `Активен режим выделения • команд: ${finalList.length}`
+      : `Активен режим страницы • команд: ${finalList.length}`;
+  }
+
   listEl.innerHTML = '';
   finalList.forEach(cmd => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `pzdrk-rail-btn pzdrk-rail-cmd ${cmd.scope === 'selection' ? 'is-selection' : ''}`;
+    btn.dataset.group = getCommandGroup(cmd);
     const key = (cmd.key || '').toString().toUpperCase();
     btn.innerHTML = `
       <span class="pzdrk-rail-icon">${escapeHtml(cmd.icon || '⚡')}</span>
       ${key ? `<span class="pzdrk-rail-key">${escapeHtml(key)}</span>` : ''}
     `;
-    btn.title = `${cmd.title || cmd.id}${key ? ` (${key})` : ''}`;
+    btn.title = `${cmd.title || cmd.id}${cmd.hint ? ` — ${cmd.hint}` : ''}${key ? ` (${key})` : ''}`;
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -3795,15 +5195,15 @@ function renderCommandRail() {
   });
 }
 
-async function runCommand(cmd) {
+async function runCommand(cmd, options = {}) {
   if (!cmd) return;
   try {
     if (cmd.kind === 'builtin') {
-      await cmd.run?.();
+      await cmd.run?.(options);
       return;
     }
     if (cmd.kind === 'custom') {
-      await runCustomCommand(cmd);
+      await runCustomCommand(cmd, options);
     }
   } catch (e) {
     showToast('Command: ' + (e?.message || 'ошибка'));
@@ -3811,7 +5211,7 @@ async function runCommand(cmd) {
 }
 
 async function runCustomCommand(cmd, options = {}) {
-  const ctx = getCommandContext();
+  const ctx = getCommandContext(options?.sourceNote || null);
   if ((cmd.scope || 'page') === 'selection' && !ctx.selection) {
     showToast('Нужно выделение');
     return;
@@ -3819,10 +5219,12 @@ async function runCustomCommand(cmd, options = {}) {
 
   const prompt = renderTemplate(cmd.prompt, ctx);
   const system = (cmd.system && String(cmd.system).trim()) ? String(cmd.system) : STYLE_RULES;
+  const settings = runtimeSettings || await getSettings().catch(() => null);
+  const maxTokens = getTaskMaxTokens(settings, 1800, 256);
 
   if ((cmd.mode || 'note') === 'clipboard') {
-    const out = await callGroq(prompt, system);
-    await navigator.clipboard.writeText(String(out || '').trim());
+    const out = await callGroq(prompt, system, { temperature: 0.35, max_tokens: maxTokens });
+    await copyTextToClipboard(String(out || '').trim());
     showToast('📋 Скопировано');
     return;
   }
@@ -3836,6 +5238,8 @@ async function runCustomCommand(cmd, options = {}) {
     loading: true
   });
   note.dataset.pinned = 'true';
+  note.dataset.actionsEnabled = 'true';
+  if (options?.sourceNote?.dataset?.noteId) note.dataset.sourceNoteId = options.sourceNote.dataset.noteId;
   if (targetNote) {
     const titleEl = note.querySelector('.pzdrk-note-title');
     if (titleEl) titleEl.textContent = cmd.title || 'Command';
@@ -3846,28 +5250,775 @@ async function runCustomCommand(cmd, options = {}) {
     note.classList.add('loading');
   }
 
-  const out = await callGroq(prompt, system);
+  const out = await callGroq(prompt, system, { temperature: 0.35, max_tokens: maxTokens });
   if (!note.isConnected) return;
   note.querySelector('.pzdrk-note-content').innerHTML = formatRichText(out || '—');
   note.classList.remove('loading');
   setupHoverInteractions(note);
+  createFloatingHints(note);
   positionActionFlyout();
 }
 
 function parseJsonObject(text) {
   if (!text) return null;
+  const source = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   try {
-    return JSON.parse(text);
+    return JSON.parse(source);
   } catch (e) {
     // try to extract {...}
     try {
-      const m = String(text).match(/\{[\s\S]*\}/);
+      const m = source.match(/\{[\s\S]*\}/);
       if (!m) return null;
       return JSON.parse(m[0]);
     } catch (e2) {
       return null;
     }
   }
+}
+
+function parseJsonArray(text) {
+  if (!text) return null;
+  const source = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  try {
+    const parsed = JSON.parse(source);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') return extractMindmapNodeList(parsed);
+    return null;
+  } catch (e) {
+    try {
+      const m = source.match(/\[[\s\S]*\]/);
+      if (!m) return null;
+      const parsed = JSON.parse(m[0]);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e2) {
+      const obj = parseJsonObject(source);
+      if (obj && typeof obj === 'object') return extractMindmapNodeList(obj);
+      return null;
+    }
+  }
+}
+
+function extractMindmapNodeList(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== 'object') return null;
+
+  for (const key of ['children', 'nodes', 'items', 'branches', 'clusters', 'topics', 'groups']) {
+    if (Array.isArray(raw[key])) return raw[key];
+  }
+
+  for (const key of ['mindmap', 'data', 'result']) {
+    if (raw[key] && typeof raw[key] === 'object') {
+      const nested = extractMindmapNodeList(raw[key]);
+      if (Array.isArray(nested) && nested.length) return nested;
+    }
+  }
+
+  return null;
+}
+
+function unwrapMindmapObject(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  for (const key of ['mindmap', 'data', 'result']) {
+    if (raw[key] && typeof raw[key] === 'object' && !Array.isArray(raw[key])) {
+      const nested = unwrapMindmapObject(raw[key]) || raw[key];
+      const nestedNodes = extractMindmapNodeList(nested);
+      if (Array.isArray(nestedNodes) && nestedNodes.length) {
+        return {
+          ...nested,
+          title: nested.title || nested.label || raw.title || raw.label,
+          metadata: {
+            ...((raw.metadata && typeof raw.metadata === 'object') ? raw.metadata : {}),
+            ...((nested.metadata && typeof nested.metadata === 'object') ? nested.metadata : {})
+          }
+        };
+      }
+    }
+  }
+
+  return raw;
+}
+
+function normalizeStringList(list, limit = 4, maxLen = 140) {
+  const source = Array.isArray(list)
+    ? list
+    : (typeof list === 'string'
+      ? String(list).split(/\r?\n+/)
+      : ((list && typeof list === 'object') ? Object.values(list) : []));
+
+  return source
+    .map(item => extractTextCandidate(item))
+    .map(item => /^\[object Object\]$/i.test(String(item || '').trim()) ? '' : item)
+    .map(item => String(item || '').replace(/^[-•▪◦]\s+/, '').trim().replace(/\s+/g, ' ').slice(0, maxLen))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function normalizeMindmapKind(value, depth = 0) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return depth === 0 ? 'cluster' : 'branch';
+  if (/(cluster|group|pillar|theme|domain)/.test(raw)) return 'cluster';
+  if (/(mechanism|architecture|system|component|pipeline)/.test(raw)) return 'mechanism';
+  if (/(actor|person|team|role)/.test(raw)) return 'actor';
+  if (/(tool|library|framework|sdk|platform)/.test(raw)) return 'tool';
+  if (/(artifact|example|sample|repo|document|output)/.test(raw)) return 'artifact';
+  if (/(evidence|signal|benchmark|metric|proof)/.test(raw)) return 'evidence';
+  if (/(risk|constraint|pitfall|failure|caveat)/.test(raw)) return 'risk';
+  if (/(question|unknown|gap|ambiguity)/.test(raw)) return 'question';
+  if (/(workflow|process|playbook|sequence|timeline)/.test(raw)) return 'workflow';
+  if (/(integration|bridge|interface|interop)/.test(raw)) return 'integration';
+  return depth === 0 ? 'cluster' : raw.replace(/[^\w-]+/g, '').slice(0, 24) || 'branch';
+}
+
+function normalizeMindmapGroup(value, fallback = '') {
+  return extractTextCandidate(value)
+    .replace(/^[-•▪◦]\s+/, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 72) || String(fallback || '').trim().slice(0, 72);
+}
+
+function mindmapKindLabel(kind, depth = 0) {
+  const normalized = normalizeMindmapKind(kind, depth);
+  switch (normalized) {
+    case 'cluster': return 'кластер';
+    case 'mechanism': return 'механизм';
+    case 'actor': return 'акторы';
+    case 'tool': return 'инструмент';
+    case 'artifact': return 'артефакт';
+    case 'evidence': return 'сигнал';
+    case 'risk': return 'риск';
+    case 'question': return 'вопрос';
+    case 'workflow': return 'сценарий';
+    case 'integration': return 'интеграция';
+    default: return depth === 0 ? 'кластер' : 'ветка';
+  }
+}
+
+const MINDMAP_TREE_MAX_DEPTH = 5;
+
+function normalizeMindmapNodes(list, prefix = 'node_', depth = 0, maxDepth = MINDMAP_TREE_MAX_DEPTH, inheritedGroup = '') {
+  const out = [];
+  const seen = new Set();
+
+  for (const [index, raw] of (Array.isArray(list) ? list : []).entries()) {
+    const rawObject = (raw && typeof raw === 'object') ? raw : null;
+    const label = String(rawObject ? (rawObject.label || rawObject.title || rawObject.name || rawObject.text || '') : raw || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/^[-•▪◦]\s+/, '')
+      .slice(0, 96);
+    if (!label) continue;
+
+    const dedupeKey = `${depth}:${label.toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const baseId = String(rawObject?.id || '').trim() || slugifyForId(label) || `${prefix}${index + 1}`;
+    const description = extractTextCandidate(rawObject?.description || rawObject?.summary || rawObject?.context)
+      .replace(/^[-•▪◦]\s+/, '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 280);
+    const kind = normalizeMindmapKind(rawObject?.kind || rawObject?.type || rawObject?.category, depth);
+    const group = normalizeMindmapGroup(rawObject?.group || rawObject?.cluster || rawObject?.bucket, depth === 0 ? label : inheritedGroup);
+    const childSource = extractMindmapNodeList(rawObject);
+    const children = depth >= maxDepth ? [] : normalizeMindmapNodes(childSource, `${baseId}_`, depth + 1, maxDepth, group || inheritedGroup);
+
+    out.push({
+      id: baseId.slice(0, 64),
+      label,
+      kind,
+      group,
+      description,
+      insights: normalizeStringList(rawObject?.insights || rawObject?.tips || rawObject?.notes || rawObject?.takeaways, 4, 140),
+      evidence: normalizeStringList(rawObject?.evidence || rawObject?.signals || rawObject?.examples || rawObject?.proofs, 4, 140),
+      questions: normalizeStringList(rawObject?.questions || rawObject?.unknowns || rawObject?.gaps || rawObject?.risks, 4, 140),
+      children
+    });
+  }
+
+  return out;
+}
+
+function mergeMindmapChildren(existing, incoming, options = {}) {
+  const prefix = String(options?.prefix || 'node_');
+  const depth = Math.max(0, Number(options?.depth) || 1);
+  const maxDepth = Number.isFinite(Number(options?.maxDepth)) ? Number(options.maxDepth) : MINDMAP_TREE_MAX_DEPTH;
+  const inheritedGroup = normalizeMindmapGroup(options?.inheritedGroup || '', '');
+  const merged = normalizeMindmapNodes(
+    [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])],
+    prefix,
+    depth,
+    maxDepth,
+    inheritedGroup
+  );
+  return merged;
+}
+
+function countMindmapLeaves(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).reduce((sum, node) => {
+    const children = Array.isArray(node?.children) ? node.children : [];
+    if (!children.length) return sum + 1;
+    return sum + countMindmapLeaves(children);
+  }, 0);
+}
+
+function getMindmapMaxDepth(nodes, depth = 0) {
+  let maxDepth = depth;
+  for (const node of (Array.isArray(nodes) ? nodes : [])) {
+    const childDepth = getMindmapMaxDepth(node?.children || [], depth + 1);
+    if (childDepth > maxDepth) maxDepth = childDepth;
+  }
+  return maxDepth;
+}
+
+function countMindmapNodes(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).reduce((sum, node) => sum + 1 + countMindmapNodes(node?.children || []), 0);
+}
+
+function countMindmapBranches(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).reduce((sum, node) => sum + ((node?.children?.length || 0) > 0 ? 1 : 0) + countMindmapBranches(node?.children || []), 0);
+}
+
+function stripMindmapEdgeMarkup(value = '') {
+  return String(value || '')
+    .replace(/\s*\[\[edge:([^\]]+)\]\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function extractMindmapEdgeRefs(...values) {
+  const refs = [];
+  const seen = new Set();
+
+  const pushRef = (raw) => {
+    const normalized = normalizeMindmapGroup(raw, '').trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push(normalized);
+  };
+
+  values.flat().forEach((value) => {
+    const text = extractTextCandidate(value);
+    if (!text) return;
+    const matches = text.matchAll(/\[\[edge:([^\]]+)\]\]/gi);
+    for (const match of matches) {
+      pushRef(match[1] || '');
+    }
+  });
+
+  return refs;
+}
+
+function extractContextWindow(text, query = '', radius = 480) {
+  const source = String(text || '').trim();
+  if (!source) return '';
+  const limit = Math.max(220, Math.round(Number(radius) || 480));
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return source.slice(0, limit * 2);
+  const index = source.toLowerCase().indexOf(needle);
+  if (index < 0) return source.slice(0, limit * 2);
+  const start = Math.max(0, index - limit);
+  const end = Math.min(source.length, index + needle.length + limit);
+  return source.slice(start, end).trim();
+}
+
+function buildMindmapExpansionContext(content, summary, node, contentLimit = 1400) {
+  const clip = (value, limit) => String(value || '').slice(0, Math.max(0, Math.round(Number(limit) || 0)));
+  const nodeLabel = String(node?.label || '').trim();
+  const description = stripMindmapEdgeMarkup(extractTextCandidate(node?.description || '')).slice(0, 220);
+  const hints = normalizeStringList([
+    ...(Array.isArray(node?.insights) ? node.insights : []),
+    ...(Array.isArray(node?.evidence) ? node.evidence : []),
+    ...(Array.isArray(node?.questions) ? node.questions : [])
+  ], 5, 110);
+  const localWindow = extractContextWindow(content, nodeLabel || description, Math.min(560, Math.max(260, Math.floor(contentLimit / 2.4))));
+  return clip(
+    `ФОКУС-ВЕТКА: ${nodeLabel || 'ветка'}
+ОПИСАНИЕ: ${description || '—'}
+УЖЕ ЕСТЬ: ${hints.join(' | ') || '—'}
+
+КРАТКАЯ СВОДКА:
+${clip(summary || '—', 620)}
+
+ЛОКАЛЬНЫЙ ФРАГМЕНТ:
+${localWindow || clip(content || '', contentLimit)}`,
+    contentLimit
+  );
+}
+
+function scoreMindmapNodeForExpansion(node, depth = 0) {
+  const childCount = Array.isArray(node?.children) ? node.children.length : 0;
+  const insightCount = Array.isArray(node?.insights) ? node.insights.length : 0;
+  const evidenceCount = Array.isArray(node?.evidence) ? node.evidence.length : 0;
+  const questionCount = Array.isArray(node?.questions) ? node.questions.length : 0;
+  const descScore = node?.description ? Math.min(2, Math.ceil(String(node.description).length / 90)) : 0;
+  const scarcityScore = Math.max(0, 5 - childCount) * 3;
+  const insightScore = Math.min(2, insightCount);
+  const evidenceScore = Math.min(2, evidenceCount);
+  const questionScore = Math.min(2, questionCount + (String(node?.kind || '') === 'question' ? 1 : 0));
+  const labelScore = Math.min(2, Math.ceil(String(node?.label || '').trim().length / 12));
+  const clusterScore = String(node?.kind || '') === 'cluster' ? 2 : 0;
+  const laneDiversityScore = Math.min(3, Number(insightCount > 0) + Number(evidenceCount > 0) + Number(questionCount > 0));
+  const depthScore = depth === 0 ? 3 : depth === 1 ? 4 : depth === 2 ? 3 : 1;
+  const leafBoost = childCount === 0 && depth >= 1 ? 2 : 0;
+  return scarcityScore + descScore + insightScore + evidenceScore + questionScore + labelScore + clusterScore + laneDiversityScore + depthScore + leafBoost;
+}
+
+function flattenMindmapNodes(nodes, depth = 0, out = []) {
+  for (const node of (Array.isArray(nodes) ? nodes : [])) {
+    out.push({ node, depth });
+    if (node?.children?.length) flattenMindmapNodes(node.children, depth + 1, out);
+  }
+  return out;
+}
+
+function pickMindmapExpansionTargets(nodes, maxTargets = 4, options = {}) {
+  const minDepth = Math.max(0, Number(options?.minDepth) || 0);
+  const maxDepth = Number.isFinite(Number(options?.maxDepth)) ? Number(options.maxDepth) : minDepth;
+  const maxChildren = Number.isFinite(Number(options?.maxChildren)) ? Number(options.maxChildren) : 8;
+
+  return flattenMindmapNodes(nodes)
+    .filter(entry => entry.depth >= minDepth && entry.depth <= maxDepth)
+    .filter(entry => Array.isArray(entry.node?.children) ? entry.node.children.length < maxChildren : true)
+    .map((entry, index) => ({ node: entry.node, depth: entry.depth, index, score: scoreMindmapNodeForExpansion(entry.node, entry.depth) }))
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+    .slice(0, Math.max(0, maxTargets))
+    .map(entry => entry.node);
+}
+
+function buildMindmapExpansionPlan(data) {
+  const nodeCount = countMindmapNodes(data?.nodes || []);
+  const maxDepth = getMindmapMaxDepth(data?.nodes || []);
+  const leafRatio = countMindmapLeaves(data?.nodes || []) / Math.max(nodeCount, 1);
+
+  const waves = [
+    {
+      title: 'Углубляю главные кластеры…',
+      contentLimit: 1700,
+      maxTokens: 980,
+      pickTargets: () => pickMindmapExpansionTargets(data?.nodes || [], 4, { minDepth: 0, maxDepth: 0, maxChildren: 7 })
+    },
+    {
+      title: 'Раскрываю механики, сигналы и линии…',
+      contentLimit: 1350,
+      maxTokens: 760,
+      pickTargets: () => pickMindmapExpansionTargets(data?.nodes || [], 6, { minDepth: 1, maxDepth: 1, maxChildren: 6 })
+    }
+  ];
+
+  if (maxDepth < 3 || nodeCount < 48 || leafRatio > 0.56) {
+    waves.push({
+      title: 'Добираю глубокие ветки и развилки…',
+      contentLimit: 1050,
+      maxTokens: 620,
+      pickTargets: () => pickMindmapExpansionTargets(data?.nodes || [], leafRatio > 0.62 ? 4 : 3, { minDepth: 2, maxDepth: 2, maxChildren: 4 })
+    });
+  }
+
+  if (maxDepth < 4 && leafRatio > 0.62) {
+    waves.push({
+      title: 'Подсвечиваю edge-связи и проверки…',
+      contentLimit: 920,
+      maxTokens: 520,
+      pickTargets: () => pickMindmapExpansionTargets(data?.nodes || [], 2, { minDepth: 1, maxDepth: 2, maxChildren: 3 })
+    });
+  }
+
+  return waves;
+}
+
+function normalizeMindmapData(raw) {
+  const obj = unwrapMindmapObject((raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : parseJsonObject(raw));
+  if (!obj || typeof obj !== 'object') return null;
+
+  const nodes = normalizeMindmapNodes(extractMindmapNodeList(obj) || [], 'node_', 0, MINDMAP_TREE_MAX_DEPTH);
+  if (!nodes.length) return null;
+
+  const metadata = (obj.metadata && typeof obj.metadata === 'object') ? { ...obj.metadata } : {};
+  metadata.nodeCount = countMindmapNodes(nodes);
+  metadata.leafCount = countMindmapLeaves(nodes);
+  metadata.clusterCount = nodes.length;
+  metadata.maxDepth = getMindmapMaxDepth(nodes);
+  metadata.mapStyle = String(metadata.mapStyle || 'clustered').trim().slice(0, 24) || 'clustered';
+  metadata.coverage = String(metadata.coverage || (nodes.length >= 6 ? 'broad' : 'medium')).trim().slice(0, 24) || 'medium';
+
+  return {
+    title: String(obj.title || obj.label || document.title || 'Карта').trim().slice(0, 80),
+    nodes,
+    metadata
+  };
+}
+
+function sanitizeMermaidMindmapLabel(label) {
+  return String(label || '')
+    .replace(/\[\[(?:entity|term|wiki|evidence|action):([^\]]+)\]\]/gi, '$1')
+    .replace(/[()"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'Node';
+}
+
+function buildMindmapMermaid(data) {
+  const title = sanitizeMermaidMindmapLabel(data?.title || 'Карта');
+  let mm = `mindmap\n  root((${title}))\n`;
+  const traverse = (nodes, indent) => {
+    for (const node of (Array.isArray(nodes) ? nodes : [])) {
+      mm += `${indent}${sanitizeMermaidMindmapLabel(node?.label)}\n`;
+      if (node?.children?.length) traverse(node.children, `${indent}  `);
+    }
+  };
+  traverse(data?.nodes || [], '    ');
+  return mm;
+}
+
+function buildMindmapOutline(data) {
+  const lines = [`# ${String(data?.title || 'Карта').trim() || 'Карта'}`];
+  const walk = (nodes, depth = 0) => {
+    for (const node of (Array.isArray(nodes) ? nodes : [])) {
+      const prefix = `${'  '.repeat(Math.max(0, depth))}- `;
+      lines.push(`${prefix}${node.label}`);
+      if (node.kind) lines.push(`${'  '.repeat(depth + 1)}тип: ${mindmapKindLabel(node.kind, depth)}`);
+      if (node.group && node.group !== node.label) lines.push(`${'  '.repeat(depth + 1)}группа: ${node.group}`);
+      if (node.description) lines.push(`${'  '.repeat(depth + 1)}${node.description}`);
+      for (const insight of normalizeStringList(node.insights || [], 4, 180)) {
+        lines.push(`${'  '.repeat(depth + 1)}• линия: ${insight}`);
+      }
+      for (const evidence of normalizeStringList(node.evidence || [], 4, 180)) {
+        lines.push(`${'  '.repeat(depth + 1)}• сигнал: ${evidence}`);
+      }
+      for (const question of normalizeStringList(node.questions || [], 4, 180)) {
+        lines.push(`${'  '.repeat(depth + 1)}• проверить: ${question}`);
+      }
+      if (node.children?.length) walk(node.children, depth + 1);
+    }
+  };
+  walk(data?.nodes || [], 0);
+  return lines.join('\n').trim();
+}
+
+function countMindmapSignals(node) {
+  return normalizeStringList(node?.insights || [], 6, 180).length
+    + normalizeStringList(node?.evidence || [], 6, 180).length
+    + normalizeStringList(node?.questions || [], 6, 180).length;
+}
+
+function summarizeMindmapNode(node, maxLen = 160) {
+  const label = String(node?.label || '').trim();
+  const description = stripMindmapEdgeMarkup(extractTextCandidate(node?.description || ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+  if (label && description) return `${label}: ${description}`;
+  return label || description || '';
+}
+
+function getMindmapModesForNode(node) {
+  const modes = new Set(['all']);
+  const kind = normalizeMindmapKind(node?.kind, 1);
+  const insightCount = normalizeStringList(node?.insights || [], 6, 180).length;
+  const evidenceCount = normalizeStringList(node?.evidence || [], 6, 180).length;
+  const questionCount = normalizeStringList(node?.questions || [], 6, 180).length;
+
+  if (kind === 'risk') modes.add('risks');
+  if (kind === 'question' || questionCount > 0) modes.add('questions');
+  if (kind === 'evidence' || insightCount > 0 || evidenceCount > 0) modes.add('signals');
+  if (['tool', 'artifact', 'integration'].includes(kind)) modes.add('tools');
+  if (['workflow', 'mechanism', 'integration'].includes(kind)) modes.add('flows');
+
+  return Array.from(modes);
+}
+
+function buildMindmapOverview(data, limit = 4) {
+  const entries = flattenMindmapNodes(data?.nodes || []);
+  const signals = [];
+  const questions = [];
+  const risks = [];
+  const tools = [];
+
+  const pushUnique = (bucket, item) => {
+    if (!item?.text) return;
+    const dedupeKey = `${String(item.label || '').toLowerCase()}::${String(item.text || '').toLowerCase()}`;
+    if (bucket.some(existing => existing.key === dedupeKey)) return;
+    bucket.push({ ...item, key: dedupeKey });
+  };
+
+  for (const { node, depth } of entries) {
+    const baseScore = Math.max(1, 8 - depth);
+    const label = String(node?.label || '').trim();
+    const group = normalizeMindmapGroup(node?.group || '', '');
+    const summary = summarizeMindmapNode(node, 150);
+    const kind = normalizeMindmapKind(node?.kind, depth);
+
+    normalizeStringList(node?.evidence || [], 4, 180).forEach((text, index) => {
+      pushUnique(signals, { label, group, text: stripMindmapEdgeMarkup(text), score: baseScore * 10 - index, kind });
+    });
+    normalizeStringList(node?.insights || [], 4, 180).forEach((text, index) => {
+      pushUnique(signals, { label, group, text: stripMindmapEdgeMarkup(text), score: baseScore * 8 - index, kind });
+    });
+    normalizeStringList(node?.questions || [], 4, 180).forEach((text, index) => {
+      pushUnique(questions, { label, group, text: stripMindmapEdgeMarkup(text), score: baseScore * 10 - index, kind });
+      if (kind === 'risk') {
+        pushUnique(risks, { label, group, text: stripMindmapEdgeMarkup(text), score: baseScore * 9 - index, kind });
+      }
+    });
+
+    if (kind === 'risk') {
+      pushUnique(risks, { label, group, text: summary || label, score: baseScore * 11, kind });
+    }
+    if (['tool', 'artifact', 'integration'].includes(kind)) {
+      pushUnique(tools, { label, group, text: summary || label, score: baseScore * 9, kind });
+    }
+  }
+
+  const finalize = (bucket) => bucket
+    .sort((a, b) => (b.score - a.score) || a.label.localeCompare(b.label, 'ru'))
+    .slice(0, Math.max(1, limit))
+    .map(({ key, ...item }) => item);
+
+  return {
+    focusClusters: (Array.isArray(data?.nodes) ? data.nodes : []).slice(0, 7).map(node => ({
+      id: String(node?.id || ''),
+      label: String(node?.label || '').trim(),
+      group: normalizeMindmapGroup(node?.group || '', ''),
+      kind: normalizeMindmapKind(node?.kind, 0)
+    })),
+    topSignals: finalize(signals),
+    topQuestions: finalize(questions),
+    topRisks: finalize(risks),
+    topTools: finalize(tools)
+  };
+}
+
+function buildMindmapEdgeOverview(data, limit = 5) {
+  const entries = flattenMindmapNodes(data?.nodes || []);
+  const dedupe = new Set();
+  const edges = [];
+
+  const buildLookupKey = (value) => stripMindmapEdgeMarkup(extractTextCandidate(value))
+    .trim()
+    .toLowerCase();
+  const labelLookup = new Map();
+  for (const { node } of entries) {
+    const key = buildLookupKey(node?.label || '');
+    if (key && !labelLookup.has(key)) labelLookup.set(key, node);
+  }
+
+  const findTarget = (ref) => {
+    const needle = buildLookupKey(ref);
+    if (!needle) return null;
+    if (labelLookup.has(needle)) return labelLookup.get(needle) || null;
+    for (const [labelKey, node] of labelLookup.entries()) {
+      if (labelKey.includes(needle) || needle.includes(labelKey)) return node;
+    }
+    return null;
+  };
+
+  for (const { node, depth } of entries) {
+    const refs = extractMindmapEdgeRefs(node?.description, node?.insights, node?.evidence, node?.questions);
+    if (!refs.length) continue;
+    const sourceLabel = String(node?.label || '').trim();
+    const snippet = stripMindmapEdgeMarkup(
+      extractTextCandidate(node?.description || '')
+      || normalizeStringList(node?.insights || [], 1, 180)[0]
+      || normalizeStringList(node?.evidence || [], 1, 180)[0]
+      || ''
+    ).slice(0, 180);
+
+    refs.forEach((ref, index) => {
+      const targetNode = findTarget(ref);
+      const targetLabel = String(targetNode?.label || ref).trim();
+      if (!sourceLabel || !targetLabel || sourceLabel === targetLabel) return;
+      const key = `${sourceLabel.toLowerCase()}::${targetLabel.toLowerCase()}`;
+      if (dedupe.has(key)) return;
+      dedupe.add(key);
+      edges.push({
+        label: `${sourceLabel} → ${targetLabel}`,
+        text: snippet || `Связь с веткой ${targetLabel}`,
+        sourceId: String(node?.id || ''),
+        targetId: String(targetNode?.id || ''),
+        score: Math.max(1, 10 - depth) * 10 - index
+      });
+    });
+  }
+
+  return edges
+    .sort((a, b) => (b.score - a.score) || a.label.localeCompare(b.label, 'ru'))
+    .slice(0, Math.max(1, limit))
+    .map(({ score, ...item }) => item);
+}
+
+function buildMindmapChecklist(data) {
+  const overview = buildMindmapOverview(data, 5);
+  const lines = [`# ${String(data?.title || 'Карта').trim() || 'Карта'} — checklist`];
+
+  if (overview.topQuestions.length) {
+    lines.push('', '## Что проверить');
+    overview.topQuestions.forEach(item => {
+      lines.push(`- [ ] ${item.label}: ${item.text}`);
+    });
+  }
+
+  if (overview.topRisks.length) {
+    lines.push('', '## Риски и ограничения');
+    overview.topRisks.forEach(item => {
+      lines.push(`- [ ] ${item.label}: ${item.text}`);
+    });
+  }
+
+  if (overview.topSignals.length) {
+    lines.push('', '## Сигналы для подтверждения');
+    overview.topSignals.forEach(item => {
+      lines.push(`- [ ] ${item.label}: ${item.text}`);
+    });
+  }
+
+  if (overview.topTools.length) {
+    lines.push('', '## Инструменты / артефакты');
+    overview.topTools.forEach(item => {
+      lines.push(`- [ ] ${item.label}: ${item.text}`);
+    });
+  }
+
+  return lines.join('\n').trim();
+}
+
+function groupMindmapNodesByGroup(nodes, depth = 0, fallbackGroup = '') {
+  const groups = [];
+  const seen = new Map();
+
+  for (const node of (Array.isArray(nodes) ? nodes : [])) {
+    const normalizedGroup = normalizeMindmapGroup(
+      node?.group || '',
+      normalizeMindmapGroup(fallbackGroup, '') || mindmapKindLabel(node?.kind, depth + 1)
+    ) || 'Доп. линия';
+    const groupKey = normalizedGroup.toLowerCase();
+    let bucket = seen.get(groupKey);
+    if (!bucket) {
+      bucket = { label: normalizedGroup, items: [] };
+      seen.set(groupKey, bucket);
+      groups.push(bucket);
+    }
+    bucket.items.push(node);
+  }
+
+  return groups;
+}
+
+function getMindmapSearchText(node) {
+  return [
+    node?.label || '',
+    node?.kind || '',
+    node?.group || '',
+    stripMindmapEdgeMarkup(node?.description || ''),
+    ...normalizeStringList(node?.insights || [], 6, 180).map(stripMindmapEdgeMarkup),
+    ...normalizeStringList(node?.evidence || [], 6, 180).map(stripMindmapEdgeMarkup),
+    ...normalizeStringList(node?.questions || [], 6, 180).map(stripMindmapEdgeMarkup),
+    ...extractMindmapEdgeRefs(node?.description, node?.insights, node?.evidence, node?.questions)
+  ].join(' ').toLowerCase();
+}
+
+function tokenizeMindmapQuery(query = '') {
+  const tokens = [];
+  const source = String(query || '').trim().toLowerCase();
+  if (!source) return tokens;
+
+  const matches = source.matchAll(/"([^"]+)"|(\S+)/g);
+  for (const match of matches) {
+    const token = String(match[1] || match[2] || '').trim().replace(/\s+/g, ' ');
+    if (token) tokens.push(token);
+  }
+  return tokens;
+}
+
+function matchesMindmapSearch(haystack = '', query = '') {
+  const text = String(haystack || '').toLowerCase();
+  const tokens = Array.isArray(query) ? query : tokenizeMindmapQuery(query);
+  if (!tokens.length) return false;
+  return tokens.every(token => text.includes(token));
+}
+
+function applyMindmapCollapseState(root, collapseFromLevel = 2) {
+  if (!root) return;
+  root.querySelectorAll('.pzdrk-mm-node').forEach((nodeEl) => {
+    const level = Number(nodeEl.getAttribute('data-level') || 0);
+    const hasChildren = !!nodeEl.querySelector(':scope > .pzdrk-mm-children');
+    if (!hasChildren) {
+      nodeEl.classList.remove('collapsed');
+      return;
+    }
+    nodeEl.classList.toggle('collapsed', level >= collapseFromLevel);
+  });
+}
+
+function applyMindmapExpandToLevel(root, expandToLevel = 1) {
+  if (!root) return;
+  root.querySelectorAll('.pzdrk-mm-node').forEach((nodeEl) => {
+    const level = Number(nodeEl.getAttribute('data-level') || 0);
+    const hasChildren = !!nodeEl.querySelector(':scope > .pzdrk-mm-children');
+    if (!hasChildren) {
+      nodeEl.classList.remove('collapsed');
+      return;
+    }
+    nodeEl.classList.toggle('collapsed', level >= Math.max(0, Number(expandToLevel) || 1));
+  });
+}
+
+function refreshMindmapGroupTitleVisibility(root) {
+  if (!root) return;
+  root.querySelectorAll('.pzdrk-mm-children').forEach((container) => {
+    const titles = Array.from(container.querySelectorAll(':scope > [data-mm-group-title]'));
+    titles.forEach((titleEl) => {
+      let next = titleEl.nextElementSibling;
+      let hasVisibleNode = false;
+      while (next && !next.matches('[data-mm-group-title]')) {
+        if (next.matches('.pzdrk-mm-node') && !next.classList.contains('pzdrk-mm-hidden')) {
+          hasVisibleNode = true;
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+      titleEl.hidden = !hasVisibleNode;
+    });
+  });
+}
+
+function applyMindmapFilter(root, query = '', mode = 'all') {
+  if (!root) return { matched: 0, visible: 0 };
+
+  const tokens = tokenizeMindmapQuery(query);
+  const normalizedMode = String(mode || 'all').trim().toLowerCase() || 'all';
+  const topNodes = Array.from(root.querySelectorAll(':scope > .pzdrk-mm-node'));
+
+  const visitNode = (nodeEl) => {
+    const ownText = String(nodeEl.getAttribute('data-search') || '');
+    const ownModes = String(nodeEl.getAttribute('data-modes') || 'all').split(/\s+/).filter(Boolean);
+    const childNodes = Array.from(nodeEl.querySelectorAll(':scope > .pzdrk-mm-children > .pzdrk-mm-node'));
+    const childMatch = childNodes.some(child => visitNode(child));
+    const ownMatch = tokens.length ? matchesMindmapSearch(ownText, tokens) : false;
+    const ownModeMatch = normalizedMode === 'all' || ownModes.includes(normalizedMode);
+    const visible = (((!tokens.length && ownModeMatch) || (ownMatch && ownModeMatch)) || childMatch);
+
+    nodeEl.classList.toggle('pzdrk-mm-hidden', !visible);
+    nodeEl.classList.toggle('pzdrk-mm-match', visible && ((tokens.length > 0 && ownMatch) || (normalizedMode !== 'all' && ownModeMatch)));
+
+    if ((tokens.length || normalizedMode !== 'all') && visible && childNodes.length) {
+      nodeEl.classList.remove('collapsed');
+    }
+
+    return visible;
+  };
+
+  topNodes.forEach(visitNode);
+  refreshMindmapGroupTitleVisibility(root);
+
+  return {
+    matched: root.querySelectorAll('.pzdrk-mm-match').length,
+    visible: root.querySelectorAll('.pzdrk-mm-node:not(.pzdrk-mm-hidden)').length
+  };
 }
 
 function makeSafeId(id) {
@@ -3896,7 +6047,7 @@ function extractCommandRequest(text) {
 }
 
 async function createCustomCommandFromRequest(requestText) {
-  const ctx = getCommandContext();
+  const ctx = getCommandContext(options?.sourceNote || null);
   const prompt = PROMPTS.createCommand
     .replace('{request}', requestText)
     .replace('{url}', ctx.url)
@@ -3906,7 +6057,7 @@ async function createCustomCommandFromRequest(requestText) {
     .replace('{browserContext}', ctx.browserContext)
     .replace('{selection}', ctx.selection || '');
 
-  const raw = await callGroq(prompt, 'Только JSON объект.');
+  const raw = await callGroq(prompt, 'Только JSON объект.', { temperature: 0.2, max_tokens: getTaskMaxTokens(runtimeSettings, 1100, 256) });
   const obj = parseJsonObject(raw);
   if (!obj) throw new Error('Не удалось распарсить JSON команды');
 
@@ -4148,7 +6299,25 @@ function initCommandSystem() {
 // ============ FLOATING ACTION HINTS ============
 // These appear as separate floating rectangles with keyboard shortcuts
 
-const FLYOUT_ACTION_IDS = new Set(['twitter', 'deepdive', 'automation', 'learning', 'share', 'challenge']);
+const FLYOUT_ACTION_IDS = new Set([
+  'twitter',
+  'deepdive',
+  'automation',
+  'learning',
+  'share',
+  'challenge',
+  'timeline',
+  'extract',
+  'briefing',
+  'matrix',
+  'sources',
+  'opsplan',
+  'faq',
+  'compare',
+  'localization',
+  'frontendBuilder',
+  'renderHost'
+]);
 const ACTION_FLYOUT_MARGIN = 12;
 const ACTION_FLYOUT_HIDE_DELAY = 140;
 
@@ -4181,16 +6350,18 @@ function simpleHash32(str) {
   return (h >>> 0).toString(16);
 }
 
-function getFlyoutCacheKey(cmd) {
+function getFlyoutCacheKey(cmd, sourceNote = null) {
   const id = String(cmd?.id || '').trim();
   const scope = String(cmd?.scope || 'page');
   const url = window.location.href;
+  const noteId = String(sourceNote?.dataset?.noteId || '').trim();
+  const ownerPart = noteId ? `::note:${noteId}` : '';
   if (!id) return `${url}::(unknown)`;
   if (scope === 'selection') {
     const sel = getSelectionText() || '';
-    return `${url}::${id}::sel:${simpleHash32(sel).slice(0, 8)}`;
+    return `${url}::${id}${ownerPart}::sel:${simpleHash32(sel).slice(0, 8)}`;
   }
-  return `${url}::${id}`;
+  return `${url}::${id}${ownerPart}`;
 }
 
 function isActionFlyoutCommand(cmd) {
@@ -4266,6 +6437,29 @@ function setFlyoutContent(note, title, html, loading = false) {
   note.classList.toggle('loading', !!loading);
 }
 
+function positionFloatingNote(note, anchorEl, margin = ACTION_FLYOUT_MARGIN) {
+  if (!note || !anchorEl || !anchorEl.isConnected) return;
+  note.style.transform = 'none';
+  const rect = anchorEl.getBoundingClientRect();
+  const noteRect = note.getBoundingClientRect();
+  const stackIndex = Math.max(0, Math.min(5, Number(note.dataset.stackIndex || 0) || 0));
+
+  let left = rect.right + margin;
+  let side = 'right';
+  if ((left + noteRect.width) > (window.innerWidth - 8)) {
+    left = rect.left - noteRect.width - margin;
+    side = 'left';
+  }
+  if (stackIndex) left += (side === 'right' ? 1 : -1) * (stackIndex * 22);
+  left = Math.max(8, Math.min(left, window.innerWidth - noteRect.width - 8));
+
+  let top = rect.top - 6 + (stackIndex * 18);
+  top = Math.max(8, Math.min(top, window.innerHeight - noteRect.height - 8));
+
+  note.style.left = `${left}px`;
+  note.style.top = `${top}px`;
+}
+
 function positionActionFlyout(anchorEl = actionFlyout?.anchorEl) {
   if (!actionFlyout?.note) return;
   let anchor = anchorEl;
@@ -4288,30 +6482,15 @@ function positionActionFlyout(anchorEl = actionFlyout?.anchorEl) {
   }
   const note = actionFlyout.note;
   if (!note.isConnected || note.style.display === 'none') return;
-
-  const rect = anchor.getBoundingClientRect();
-  note.style.transform = 'none';
-
-  const noteRect = note.getBoundingClientRect();
-  let left = rect.right + ACTION_FLYOUT_MARGIN;
-  if ((left + noteRect.width) > (window.innerWidth - 8)) {
-    left = rect.left - noteRect.width - ACTION_FLYOUT_MARGIN;
-  }
-  left = Math.max(8, Math.min(left, window.innerWidth - noteRect.width - 8));
-
-  let top = rect.top - 6;
-  top = Math.max(8, Math.min(top, window.innerHeight - noteRect.height - 8));
-
-  note.style.left = `${left}px`;
-  note.style.top = `${top}px`;
+  positionFloatingNote(note, anchor, ACTION_FLYOUT_MARGIN);
 }
 
-function showActionFlyoutPreview(cmd, anchorEl) {
+function showActionFlyoutPreview(cmd, anchorEl, sourceNote = null) {
   if (actionFlyout?.pinned) return;
   const note = ensureActionFlyoutNote();
   if (actionFlyout.hideTimer) clearTimeout(actionFlyout.hideTimer);
 
-  const cacheKey = getFlyoutCacheKey(cmd);
+  const cacheKey = getFlyoutCacheKey(cmd, sourceNote);
   const cached = flyoutPrefetchCache.get(cacheKey);
 
   const safeTitle = escapeHtml(cmd?.title || cmd?.id || 'Action');
@@ -4321,7 +6500,7 @@ function showActionFlyoutPreview(cmd, anchorEl) {
   if (cached?.status === 'done' && cached.html) {
     preview = String(cached.html);
   } else if (cached?.status === 'pending') {
-    preview = '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Prefetch…</div>';
+    preview = renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Подогреваю ответ', body: 'Предпросмотр уже собирается в фоне, чтобы flyout открылся быстрее.', compact: true });
     loading = true;
   } else if (cached?.status === 'error') {
     preview = `<div class="pzdrk-error">❌ ${escapeHtml(cached.error || 'ошибка')}</div>`;
@@ -4354,7 +6533,7 @@ function openActionFlyoutPinned(cmd, anchorEl, opts = {}) {
     setFlyoutContent(
       note,
       cmd?.title || cmd?.id || 'Action',
-      '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Генерирую…</div>',
+      renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Генерирую ответ', body: 'Собираю результат для этой команды и сразу упаковываю его в читаемый формат.', compact: true }),
       true
     );
   }
@@ -4362,15 +6541,54 @@ function openActionFlyoutPinned(cmd, anchorEl, opts = {}) {
   return note;
 }
 
-async function buildFlyoutOutput(cmd, settings) {
+function createActionCardNote(cmd, anchorEl, sourceNote = null) {
+  const note = createNote({
+    title: cmd?.title || cmd?.id || 'Карточка',
+    type: 'action',
+    content: renderStateCard({
+      tone: 'waiting',
+      icon: '⏳',
+      title: 'Генерирую карточку',
+      body: 'Собираю отдельный результат, который можно двигать, масштабировать и держать рядом с основным экраном.',
+      compact: true
+    }),
+    collapsed: false,
+    loading: true,
+    layout: 'flyout'
+  });
+  note.dataset.pinned = 'true';
+  note.dataset.actionsEnabled = 'true';
+  note.dataset.stackGroup = String(sourceNote?.dataset?.noteId || 'page-root');
+  const siblingsInStack = currentNotes.filter((candidate) => (
+    candidate &&
+    candidate !== note &&
+    candidate.isConnected &&
+    candidate.dataset?.layout === 'flyout' &&
+    candidate.dataset?.stackGroup === note.dataset.stackGroup &&
+    candidate.style.display !== 'none'
+  ));
+  note.dataset.stackIndex = String(Math.min(5, siblingsInStack.length));
+  note.style.display = 'flex';
+  note.style.width = 'min(540px, calc(100vw - 32px))';
+  note.style.maxWidth = 'min(620px, calc(100vw - 24px))';
+  note.style.maxHeight = '78vh';
+  positionFloatingNote(note, anchorEl, ACTION_FLYOUT_MARGIN);
+  if (sourceNote?.dataset?.noteId) note.dataset.sourceNoteId = sourceNote.dataset.noteId;
+  createFloatingHints(note);
+  bringNoteToFront(note);
+  return note;
+}
+
+async function buildFlyoutOutput(cmd, settings, sourceNote = null) {
   if (!cmd) throw new Error('No command');
-  const ctx = getCommandContext();
+  const ctx = getCommandContext(sourceNote);
+  const maxTokens = getTaskMaxTokens(settings, 1800, 256);
 
   if (cmd.kind === 'custom') {
     if ((cmd.scope || 'page') === 'selection' && !ctx.selection) throw new Error('Нужно выделение');
     const prompt = renderTemplate(cmd.prompt, ctx);
     const system = (cmd.system && String(cmd.system).trim()) ? String(cmd.system) : STYLE_RULES;
-    return await callGroq(prompt, system, { temperature: 0.35, max_tokens: Math.max(256, Number(settings?.targetMaxOutputTokens) || 500) });
+    return await callGroq(prompt, system, { temperature: 0.35, max_tokens: maxTokens });
   }
 
   if (cmd.kind === 'builtin' && FLYOUT_ACTION_IDS.has(cmd.id)) {
@@ -4379,13 +6597,13 @@ async function buildFlyoutOutput(cmd, settings) {
     const tpl = override || DEFAULT_ACTION_PROMPTS[actionType];
     if (!tpl) throw new Error('Нет промпта для действия: ' + actionType);
     const prompt = renderTemplate(tpl, ctx);
-    return await callGroq(prompt, STYLE_RULES, { temperature: 0.35, max_tokens: Math.max(256, Number(settings?.targetMaxOutputTokens) || 500) });
+    return await callGroq(prompt, STYLE_RULES, { temperature: 0.35, max_tokens: maxTokens });
   }
 
   throw new Error('Unsupported flyout command');
 }
 
-async function maybeScheduleFlyoutPrefetch(cmd, anchorEl) {
+async function maybeScheduleFlyoutPrefetch(cmd, anchorEl, sourceNote = null) {
   if (!cmd || !anchorEl) return;
   if (actionFlyout?.pinned) return;
 
@@ -4394,17 +6612,17 @@ async function maybeScheduleFlyoutPrefetch(cmd, anchorEl) {
   if (!settings?.prefetchOnHover) return;
 
   const delay = Number.isFinite(Number(settings.prefetchDelayMs)) ? Number(settings.prefetchDelayMs) : 320;
-  const cacheKey = getFlyoutCacheKey(cmd);
+  const cacheKey = getFlyoutCacheKey(cmd, sourceNote);
 
   if (actionFlyout?.prefetchTimer) clearTimeout(actionFlyout.prefetchTimer);
   actionFlyout.prefetchKey = cacheKey;
 
   actionFlyout.prefetchTimer = setTimeout(() => {
-    startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings);
+    startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings, sourceNote);
   }, Math.max(0, Math.min(2000, delay)));
 }
 
-async function startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings) {
+async function startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings, sourceNote = null) {
   if (!cmd || !cacheKey) return;
   if (actionFlyout?.pinned) return;
   if (String(actionFlyout?.cmdId || '') !== String(cmd.id || '')) return;
@@ -4419,12 +6637,12 @@ async function startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings) {
   pruneFlyoutPrefetchCache();
 
   note.style.display = 'flex';
-  setFlyoutContent(note, cmd?.title || cmd?.id || 'Action', '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Prefetch…</div>', true);
+  setFlyoutContent(note, cmd?.title || cmd?.id || 'Action', renderStateCard({ tone: 'waiting', icon: '⏳', title: 'Делаю prefetch', body: 'Черновик готовится заранее, пока вы только смотрите на карточку.', compact: true }), true);
   positionActionFlyout(anchorEl);
 
   entry.promise = (async () => {
     try {
-      const out = await buildFlyoutOutput(cmd, settings);
+      const out = await buildFlyoutOutput(cmd, settings, sourceNote);
       entry.status = 'done';
       entry.text = String(out || '');
       entry.html = formatRichText(entry.text || '—');
@@ -4445,31 +6663,54 @@ async function startFlyoutPrefetch(cmd, anchorEl, cacheKey, settings) {
   })();
 }
 
-async function runFlyoutCommand(cmd, note, anchorEl) {
+async function runFlyoutCommand(cmd, note, anchorEl, sourceNote = null) {
   if (!cmd) return;
-  if (cmd.kind === 'custom') return runCustomCommand(cmd, { targetNote: note, anchorEl });
+  if (cmd.kind === 'custom') return runCustomCommand(cmd, { targetNote: note, anchorEl, sourceNote });
   if (cmd.kind === 'builtin' && FLYOUT_ACTION_IDS.has(cmd.id)) {
     const action = getDefaultActions().find(a => a.type === cmd.id);
-    return executeAction(action, { targetNote: note, anchorEl });
+    return executeAction(action, { targetNote: note, anchorEl, sourceNote });
   }
-  return runCommand(cmd);
+  return runCommand(cmd, { sourceNote });
 }
 
 function getDefaultActions() {
   return [
-    { key: 'M', title: 'Mindmap', type: 'mindmap', icon: '🗺' },
-    { key: '1', title: 'Twitter', type: 'twitter', icon: '🐦' },
-    { key: '2', title: 'Deep Dive', type: 'deepdive', icon: '🔬' },
-    { key: '3', title: 'Automate', type: 'automation', icon: '⚡' },
-    { key: '4', title: 'Learn', type: 'learning', icon: '📚' },
-    { key: '5', title: 'Share', type: 'share', icon: '📤' },
-    { key: '6', title: 'Challenge', type: 'challenge', icon: '🎯' },
+    { key: 'M', title: 'Карта', type: 'mindmap', icon: '🗺', hint: 'Структурная карта темы', group: 'core', pinned: true },
+    { key: '1', title: 'Тред', type: 'twitter', icon: '🐦', hint: 'Готовая нить для публикации', group: 'publish', pinned: true },
+    { key: '2', title: 'Разбор', type: 'deepdive', icon: '🔬', hint: 'Допущения, риски, последствия', group: 'analysis', pinned: true },
+    { key: '3', title: 'Автоматизация', type: 'automation', icon: '⚡', hint: 'От быстрого хода к системе', group: 'ops', pinned: true },
+    { key: '4', title: 'Обучение', type: 'learning', icon: '📚', hint: '14-дневный план и упражнения', group: 'analysis', pinned: true },
+    { key: '5', title: 'Поделиться', type: 'share', icon: '📤', hint: 'Пакет для разных каналов', group: 'publish', pinned: true },
+    { key: '6', title: 'Оспорить', type: 'challenge', icon: '🎯', hint: 'Проверка на слабые места', group: 'analysis', pinned: true },
+    { key: '7', title: 'Хронология', type: 'timeline', icon: '⏱', hint: 'Фазы, этапы, зависимости', group: 'structure', pinned: true },
+    { key: '8', title: 'Извлечь', type: 'extract', icon: '📦', hint: 'Факты, числа, сущности, задачи', group: 'structure', pinned: true },
+    { key: '9', title: 'Бриф', type: 'briefing', icon: '🧾', hint: 'Краткая записка и рекомендация', group: 'structure', pinned: true },
+    { key: '0', title: 'Матрица', type: 'matrix', icon: '🧮', hint: 'Сравнение вариантов по критериям', group: 'structure', pinned: true },
+    { key: 'Q', title: 'Источники', type: 'sources', icon: '🧷', hint: 'Карта доказательств и проверок', group: 'analysis', pinned: true },
+    { key: 'A', title: 'План', type: 'opsplan', icon: '🛠', hint: 'Пошаговый план выполнения', group: 'ops', pinned: true },
+    { key: 'W', title: 'FAQ', type: 'faq', icon: '❓', hint: '10 ключевых вопросов и ответов', group: 'structure', pinned: true },
+    { key: 'D', title: 'Сравнить', type: 'compare', icon: '⚖️', hint: 'Варианты, trade-offs, выбор', group: 'structure', pinned: true },
+    { key: 'L', title: 'Локализация', type: 'localization', icon: '🔤', hint: 'Перевод без потери смысла', group: 'build', pinned: false },
+    { key: 'F', title: 'Интерфейс', type: 'frontendBuilder', icon: '💻', hint: 'Превратить материал в UI-концепт', group: 'build', pinned: false },
+    { key: 'R', title: 'Деплой', type: 'renderHost', icon: '🚀', hint: 'План выкладки на Render.com', group: 'ops', pinned: false },
   ];
 }
 
 const DEFAULT_ACTION_PROMPTS = {
-  twitter: `Сделай Twitter-тред (5–9 твитов по 280 символов).
-Требования: 1) хук в первом, 2) факты/числа отмечай как [[evidence:...]], 3) CTA последним.
+  twitter: `${STYLE_RULES}
+
+Сделай X/Twitter-тред уровня operator memo.
+
+Формат:
+1. 7–11 твитов.
+2. Первый твит = сильный hook + claim + stakes.
+3. Средние твиты = evidence, mechanisms, counterpoints, practical implications.
+4. Последний твит = CTA / вопрос / next move.
+
+Требования:
+- Каждый твит автономен и тянет к следующему.
+- Где есть факты/числа, помечай [[evidence:...]].
+- Не делай generic hot take; нужен angle, который реально стоит репостить.
 
 URL: {url}
 TITLE: {title}
@@ -4483,8 +6724,18 @@ PAGE SNIPPET:
 USER CONTEXT:
 {browserContext}`,
 
-  deepdive: `Глубокий разбор: неочевидные связи, предположения и что проверить.
-Формат: 1) тезис → 2) почему важно → 3) риски/антипаттерны → 4) что делать дальше.
+  deepdive: `${STYLE_RULES}
+
+Сделай глубокий strategy/engineering review.
+
+Структура:
+1. Core thesis
+2. Mechanism / why it works
+3. Hidden assumptions
+4. Risks / anti-patterns / blind spots
+5. Non-obvious implications
+6. What to do next
+7. What still needs validation
 
 URL: {url}
 TITLE: {title}
@@ -4498,8 +6749,22 @@ PAGE SNIPPET:
 USER CONTEXT:
 {browserContext}`,
 
-  automation: `Предложи, как это автоматизировать: инструменты, интеграции, API, конкретные шаги.
-Дай 3 уровня: quick win (30 мин), норм (1–2 дня), серьёзно (1–2 недели).
+  automation: `${STYLE_RULES}
+
+Предложи план автоматизации как solution architect.
+
+Дай 3 слоя:
+1. Quick win: 30–60 минут
+2. Solid implementation: 1–2 дня
+3. Serious system: 1–2 недели
+
+Для каждого слоя:
+- цель
+- стек / интеграции / API
+- архитектура потока
+- узкие места и failure modes
+- шаги внедрения
+- критерий готовности
 
 URL: {url}
 TITLE: {title}
@@ -4513,8 +6778,21 @@ PAGE SNIPPET:
 USER CONTEXT:
 {browserContext}`,
 
-  learning: `Составь план изучения на 14 дней.
-Дай: темы по дням, упражнения, мини-проекты, критерии прогресса и 5 ссылок/ресурсов (если не уверен — скажи что искать).
+  learning: `${STYLE_RULES}
+
+Собери 14-дневный learning sprint.
+
+На каждый день дай:
+- цель дня
+- что изучить
+- практику
+- mini-deliverable
+- критерий проверки понимания
+
+В конце:
+- 3 capstone mini-projects
+- типичные ошибки
+- как понять, что тема реально усвоена
 
 URL: {url}
 TITLE: {title}
@@ -4525,11 +6803,16 @@ SUMMARY:
 PAGE SNIPPET:
 {content}`,
 
-  share: `Подготовь для шаринга:
-1) Slack (3 предложения)
-2) Email subject + 2 коротких абзаца
-3) LinkedIn пост
-4) Telegram пост
+  share: `${STYLE_RULES}
+
+Подготовь пакет для распространения материала.
+
+Нужны:
+1. Slack update: 3-4 предложения
+2. Email: subject + preview line + 2 коротких абзаца
+3. LinkedIn пост: 1 сильный angle + practical takeaway
+4. Telegram пост: компактно, punchy, без воды
+5. One-line positioning: зачем это вообще пересылать
 
 URL: {url}
 TITLE: {title}
@@ -4537,9 +6820,16 @@ TITLE: {title}
 SUMMARY:
 {summary}`,
 
-  challenge: `Сгенерируй 7–10 провокационных вопросов по теме.
-К каждому: 1–2 гипотезы и что проверить/где искать.
-Потом: TOP-5 objectives и NEXT BEST PROMPTS (10 идей).
+  challenge: `${STYLE_RULES}
+
+Сделай critical challenge pack.
+
+Нужны:
+1. 8–12 провокационных вопросов
+2. На каждый вопрос: 1–2 гипотезы + что проверить/где искать
+3. TOP-5 objectives для дальнейшего копания
+4. NEXT BEST PROMPTS: 10 сильных follow-up запросов
+5. Где автор/материал может быть слишком уверен
 
 URL: {url}
 TITLE: {title}
@@ -4548,18 +6838,413 @@ SUMMARY:
 {summary}
 
 PAGE SNIPPET:
-{content}`
+{content}`,
+
+  timeline: `${STYLE_RULES}
+
+Построй операторскую хронологию по материалу. Пиши по-русски. Английские термины и исходные названия не размазывай по всему тексту: выноси их в отдельный блок комментариев в конце.
+
+Формат ответа:
+## TL;DR
+- 2-4 коротких вывода по сути: что произошло, где узкое место, что это меняет
+
+## Хронология событий
+Сделай НОРМАЛЬНУЮ markdown-таблицу, а не ASCII-псевдографику.
+Колонки строго такие:
+| № | Этап | Что произошло / должно произойти | Кто вовлечён | Входы / зависимости | Результат / последствия | Уверенность |
+|---|---|---|---|---|---|---|
+
+Требования:
+- 5-12 строк.
+- Ячейки короткие и предметные.
+- Если точных дат нет, используй относительный порядок и явно помечай неопределённость.
+- Не пиши длинные абзацы внутри таблицы.
+
+## Узкие места
+- 3-6 пунктов
+
+## Слепые зоны
+- 3-6 пунктов: чего пока не хватает для полной хронологии
+
+## Что проверить дальше
+- 4-8 конкретных шагов верификации
+
+## Комментарии к терминам
+- Кратко поясни англицизмы / термины справа отдельным блоком.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  extract: `${STYLE_RULES}
+
+Сделай extraction pack без воды и без простыней.
+
+Формат ответа:
+## TL;DR
+- 2-4 вывода
+
+## Ключевые тезисы
+- 5-10 предметных тезисов
+
+## Сущности и акторы
+Сделай markdown-таблицу:
+| Сущность | Тип | Роль / почему важна |
+|---|---|---|
+
+## Числа, даты, метрики
+Сделай markdown-таблицу:
+| Параметр | Значение | Контекст |
+|---|---|---|
+
+## Инструменты / системы / артефакты
+- Компактный список
+
+## Задачи и следующие шаги
+- 4-8 конкретных действий
+
+## Риски / пробелы
+- 4-8 пунктов
+
+Правила:
+- Только конкретика из материала или осторожные inference с явной пометкой.
+- Не превращай extraction в эссе.
+- Если данных нет, так и напиши.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  briefing: `${STYLE_RULES}
+
+Сделай жёсткий briefing для человека, который должен принять решение быстро. Пиши на простом сильном русском. Англоязычные термины и jargon выноси в короткие комментарии в конце.
+
+Формат ответа:
+## TL;DR
+- 3-5 строк: что происходит, почему это важно сейчас, какой ход лучший
+
+## Что происходит на самом деле
+- 1 короткий блок без воды, без пересказа
+
+## Варианты действий
+Сделай markdown-таблицу:
+| Вариант | Что выигрываем | Цена / риск | Скорость | Когда выбирать |
+|---|---|---|---|---|
+
+## Рекомендация сейчас
+- Что делать первым
+- Почему именно этот путь лучший сейчас
+- Что сознательно НЕ делать
+
+## Блокеры и риски
+- 4-8 пунктов
+
+## Следующие 24 / 72 часа
+- Список конкретных шагов
+
+## Что ещё надо проверить
+- Список пробелов и проверок
+
+## Комментарии к терминам
+- 3-8 коротких пояснений по терминам / англицизмам / исходным названиям
+
+Требования:
+- Сначала вывод, потом детали.
+- Учитывай не только смысл, но и execution reality.
+- Если материал шумный, отделяй signal от speculation.
+- Не пиши generic management prose.
+- Если выбор зависит от предположения, явно назови это предположение.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  matrix: `${STYLE_RULES}
+
+Собери предметную матрицу решений по материалу. Пиши на русском. Английские термины, jargon и исходные названия выноси в отдельные короткие комментарии в конце, а не размазывай по всей матрице.
+
+Формат ответа:
+## TL;DR
+- 2-4 жёстких вывода: что брать сейчас, что отложить, где главный риск
+
+## Как читать матрицу
+- 2-3 строки: по каким критериям сравниваются варианты и что здесь считается выигрышем
+
+## Матрица вариантов
+Сделай markdown-таблицу:
+| Вариант | Что даёт на практике | Выигрыш сейчас | Цена / риск | Что нужно для запуска | Когда брать |
+|---|---|---|---|---|---|
+
+## Рекомендуемый выбор сейчас
+- 3-5 строк: что брать первым и почему
+
+## Запасной вариант
+- 2-4 строки: когда он становится лучше основного
+
+## Сигналы к смене решения
+- 3-6 конкретных триггеров / условий
+
+## Следующие шаги
+- 4-8 конкретных действий
+
+## Комментарии к терминам
+- 3-8 коротких пояснений по jargon / англицизмам / исходным названиям
+
+Требования:
+- В каждой строке таблицы должен быть реальный trade-off, а не дежурная похвала.
+- Если вариантов мало, лучше 3 сильные строки, чем 7 пустых.
+- Отделяй подтверждённое от предположений.
+- Не пиши общие формулировки вроде "нужен balanced approach" без расшифровки.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  sources: `${STYLE_RULES}
+
+Построй карту источников и доказательств. Пиши по-русски. Смысл слева, термины и англицизмы — короткими комментариями в конце.
+
+Формат ответа:
+## TL;DR
+- что подтверждено, что пока слабо
+
+## Карта источников
+Сделай markdown-таблицу:
+| Источник / ссылка | Тип | Что реально подтверждает | Слабое место | Что проверить следующим ходом |
+|---|---|---|---|---|
+
+## Пробелы в доказательствах
+- 4-8 пунктов
+
+## Следующие проверки
+- 4-8 конкретных шагов проверки
+
+## Комментарии к терминам
+- 3-8 коротких пояснений по jargon / англицизмам / названиям
+
+Требования:
+- Не смешивай факт, интерпретацию и пересказ.
+- Если источник вторичный или слабый, так и помечай.
+- Покажи, где именно цепочка доказательств рвётся.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  opsplan: `${STYLE_RULES}
+
+Сделай операционный план выполнения по материалу. Пиши по-русски и без менеджерской воды.
+
+Формат ответа:
+## TL;DR
+- суть плана в 2-4 строках
+
+## План работ
+Сделай markdown-таблицу:
+| Шаг | Что делаем | Зачем именно это | Зависимости | Готово, когда |
+|---|---|---|---|---|
+
+## Узкие места
+- 3-6 пунктов
+
+## Что можно сделать сегодня
+- 4-8 конкретных быстрых шагов
+
+## Контрольные точки
+- 3-6 checkpoints: что должно стать видно, чтобы считать движение реальным
+
+## Комментарии к терминам
+- 3-8 коротких пояснений по jargon / англицизмам / исходным названиям
+
+Требования:
+- План должен быть исполнимым, а не описательным.
+- В шагах должны быть реальные зависимости и критерий завершения.
+- Если часть плана строится на предположении, явно назови его.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  faq: `${STYLE_RULES}
+
+Собери FAQ по материалу.
+
+Формат ответа:
+## TL;DR
+- 2-4 вывода
+
+## FAQ
+Сделай 8-12 пар в формате:
+**Вопрос:** ...
+**Ответ:** ...
+**Что ещё проверить:** ...
+
+Правила:
+- вопросы должны быть острыми и реальными, а не декоративными;
+- ответы короткие, конкретные, без воды.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  compare: `${STYLE_RULES}
+
+Сравни основные варианты / подходы, которые следуют из материала.
+
+Формат ответа:
+## TL;DR
+- 2-4 вывода
+
+## Сравнение
+Сделай markdown-таблицу:
+| Подход | Плюсы | Минусы | Риск | Сложность | Лучший сценарий |
+|---|---|---|---|---|---|
+
+## Практический выбор
+- что выбрать сейчас
+- когда этот выбор перестанет быть лучшим
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+PAGE SNIPPET:
+{content}
+
+USER CONTEXT:
+{browserContext}`,
+
+  localization: `${STYLE_RULES}
+
+Переведи и локализуй контент страницы на русский язык.
+
+Требования:
+- Сохрани оригинальную структуру (заголовки, списки, таблицы)
+- Переведи ВСЕ текстовые элементы включая alt text, title, placeholder
+- Сохрани технические термины на EN если нет устоявшегося перевода
+- Добавь [[term:термин(EN)]] для непереведённых терминов
+- Если есть продуктовый copywriting или UI copy, адаптируй тон, а не только слова
+- Если есть код — оставь как есть
+
+Вывод: полностью переведённая страница в Markdown.
+
+URL: {url}
+TITLE: {title}
+
+CONTENT:
+{content}`,
+
+  frontendBuilder: `${STYLE_RULES}
+
+Создай сильную frontend-концепцию на основе контента страницы.
+
+Дай:
+1. Лучший формат интерфейса для этого материала
+2. IA / page structure
+3. Design direction: typography, palette, motion, density
+4. Component tree
+5. State / interactions
+6. File structure
+7. Skeleton implementation на React + Tailwind CSS
+
+Требования:
+- Не делай generic SaaS-лендинг.
+- Нужен intentional visual direction и продуманная иерархия.
+- Укажи, что должно быть выше fold и почему.
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}
+
+CONTENT:
+{content}`,
+
+  renderHost: `${STYLE_RULES}
+
+Подготовь production-grade инструкцию для деплоя на Render.com.
+
+Включи:
+1. Тип сервиса и почему
+2. Environment variables
+3. Build/start commands
+4. Persistent storage / cron / worker split при необходимости
+5. Логи, health checks, monitoring, rollback
+6. SSL / домен / preview environments
+7. Cost estimation и ограничения free tier
+8. GitHub Actions / webhook / post-deploy checks
+9. Альтернативы, если Render — не лучший выбор
+
+URL: {url}
+TITLE: {title}
+
+SUMMARY:
+{summary}`
 };
 
 // Back-compat name: this now attaches the action panel *inside* a note.
 function createFloatingHints(noteElement) {
   if (!noteElement || !noteElement.isConnected) return;
-
-  // Keep only one attached panel (latest summary note)
-  if (actionsAnchorNote && actionsAnchorNote !== noteElement) {
-    try { actionsAnchorNote.querySelector('.pzdrk-note-actions')?.remove(); } catch (e) {}
-    hideActionFlyout(true);
-  }
+  noteElement.dataset.actionsEnabled = 'true';
   actionsAnchorNote = noteElement;
 
   // Ensure container exists
@@ -4570,7 +7255,7 @@ function createFloatingHints(noteElement) {
     noteElement.appendChild(container);
   }
 
-  renderFloatingHints();
+  renderFloatingHints(noteElement);
   updateNoteActionsPlacement(noteElement);
 }
 
@@ -4599,116 +7284,146 @@ function getHintCommands() {
   });
 }
 
-function renderFloatingHints() {
-  const note = actionsAnchorNote;
-  if (!note || !note.isConnected) return;
-  const container = note.querySelector('.pzdrk-note-actions');
-  if (!container) return;
-
+function renderFloatingHints(noteElement = null) {
   const hasSelection = !!getSelectionText();
   const cmds = getHintCommands();
-  const btnById = new Map();
+  const notes = noteElement ? [noteElement] : getActionEnabledNotes();
 
-  container.innerHTML = '';
-  cmds.forEach(cmd => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'pzdrk-note-action';
-    btn.setAttribute('data-cmd', cmd.id);
+  notes.forEach((note) => {
+    if (!note || !note.isConnected) return;
+    const container = note.querySelector('.pzdrk-note-actions');
+    if (!container) return;
 
-    const key = (cmd.key || '').toString().toUpperCase();
-    const disabled = (cmd.scope === 'selection') && !hasSelection;
-    if (disabled) btn.disabled = true;
+    const btnById = new Map();
+    container.innerHTML = '';
+    container.dataset.count = String(cmds.length);
+    container.classList.toggle('has-selection', hasSelection);
 
-    btn.innerHTML = `
-      <span class="pzdrk-note-action-icon">${escapeHtml(cmd.icon || '⚡')}</span>
-      <span class="pzdrk-note-action-text">${escapeHtml(cmd.title || cmd.id)}</span>
-      ${key ? `<span class="pzdrk-note-action-key">${escapeHtml(key)}</span>` : ''}
-    `;
-    btn.title = `${cmd.title || cmd.id}${key ? ` (${key})` : ''}`;
-
-    const isFlyout = isActionFlyoutCommand(cmd);
-    if (isFlyout) {
-      btn.addEventListener('mouseenter', () => {
-        if (btn.disabled) return;
-        showActionFlyoutPreview(cmd, btn);
-        maybeScheduleFlyoutPrefetch(cmd, btn);
-      });
-      btn.addEventListener('mouseleave', () => {
-        if (actionFlyout?.prefetchTimer) {
-          clearTimeout(actionFlyout.prefetchTimer);
-          actionFlyout.prefetchTimer = null;
-        }
-        if (actionFlyout?.pinned) return;
-        scheduleHideActionFlyout();
-      });
-    }
-
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (btn.disabled) return;
-
-      const keyEl = btn.querySelector('.pzdrk-note-action-key');
-      if (keyEl) keyEl.textContent = '⏳';
-      btn.disabled = true;
-
-      try {
-        if (isFlyout) {
-          const cacheKey = getFlyoutCacheKey(cmd);
-          const cached = flyoutPrefetchCache.get(cacheKey);
-
-          // If hover-prefetch already started (or finished), just pin and reuse.
-          if (cached?.status === 'pending' || cached?.status === 'done' || cached?.status === 'error') {
-            const flyoutNote = openActionFlyoutPinned(cmd, btn, { preserveContent: true });
-            if (cached.status === 'pending') {
-              setFlyoutContent(flyoutNote, cmd?.title || cmd?.id || 'Action', '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Генерирую…</div>', true);
-            } else if (cached.status === 'done' && cached.html) {
-              setFlyoutContent(flyoutNote, cmd?.title || cmd?.id || 'Action', String(cached.html), false);
-            } else if (cached.status === 'error') {
-              setFlyoutContent(flyoutNote, cmd?.title || cmd?.id || 'Action', `<div class="pzdrk-error">❌ ${escapeHtml(cached.error || 'ошибка')}</div>`, false);
-            }
-            setupHoverInteractions(flyoutNote);
-            positionActionFlyout(btn);
-            return;
-          }
-
-          // No cache yet: run normally and store result for instant next hover.
-          flyoutPrefetchCache.set(cacheKey, { status: 'pending', html: '', text: '', error: '', startedAt: Date.now(), finishedAt: 0, promise: null });
-          pruneFlyoutPrefetchCache();
-          const flyoutNote = openActionFlyoutPinned(cmd, btn);
-          await runFlyoutCommand(cmd, flyoutNote, btn);
-          positionActionFlyout(btn);
-
-          const html = flyoutNote.querySelector('.pzdrk-note-content')?.innerHTML || '';
-          const text = flyoutNote.querySelector('.pzdrk-note-content')?.innerText || '';
-          flyoutPrefetchCache.set(cacheKey, { status: 'done', html, text, error: '', startedAt: Date.now(), finishedAt: Date.now(), promise: null });
-          pruneFlyoutPrefetchCache();
-        } else {
-          await runCommand(cmd);
-        }
-      } finally {
-        // Re-render to restore disabled state (selection) + keycaps
-        renderFloatingHints();
-        updateNoteActionsPlacement(note);
+    let currentGroup = '';
+    cmds.forEach(cmd => {
+      const group = getCommandGroup(cmd);
+      if (group !== currentGroup) {
+        currentGroup = group;
+        const groupEl = document.createElement('div');
+        groupEl.className = 'pzdrk-note-actions-group';
+        groupEl.dataset.group = group;
+        groupEl.textContent = getCommandGroupLabel(group);
+        container.appendChild(groupEl);
       }
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `pzdrk-note-action${cmd.scope === 'selection' ? ' is-selection' : ''}`;
+      btn.setAttribute('data-cmd', cmd.id);
+      btn.dataset.group = group;
+
+      const key = (cmd.key || '').toString().toUpperCase();
+      const disabled = (cmd.scope === 'selection') && !hasSelection;
+      if (disabled) btn.disabled = true;
+
+      btn.innerHTML = `
+        <span class="pzdrk-note-action-icon">${escapeHtml(cmd.icon || '⚡')}</span>
+        <span class="pzdrk-note-action-main">
+          <span class="pzdrk-note-action-text">${escapeHtml(cmd.title || cmd.id)}</span>
+          ${cmd.hint ? `<span class="pzdrk-note-action-hint">${escapeHtml(cmd.hint)}</span>` : ''}
+        </span>
+        ${key ? `<span class="pzdrk-note-action-key">${escapeHtml(key)}</span>` : ''}
+      `;
+      btn.title = `${cmd.title || cmd.id}${cmd.hint ? ` — ${cmd.hint}` : ''}${key ? ` (${key})` : ''}`;
+
+      const isFlyout = isActionFlyoutCommand(cmd);
+      if (isFlyout) {
+        btn.addEventListener('mouseenter', () => {
+          if (btn.disabled) return;
+          showActionFlyoutPreview(cmd, btn, note);
+          maybeScheduleFlyoutPrefetch(cmd, btn, note);
+        });
+        btn.addEventListener('mouseleave', () => {
+          if (actionFlyout?.prefetchTimer) {
+            clearTimeout(actionFlyout.prefetchTimer);
+            actionFlyout.prefetchTimer = null;
+          }
+          if (actionFlyout?.pinned) return;
+          scheduleHideActionFlyout();
+        });
+      }
+
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+
+        const keyEl = btn.querySelector('.pzdrk-note-action-key');
+        if (keyEl) keyEl.textContent = '⏳';
+        btn.disabled = true;
+
+        try {
+          if (isFlyout) {
+            const cacheKey = getFlyoutCacheKey(cmd, note);
+            const cached = flyoutPrefetchCache.get(cacheKey);
+            const cardNote = createActionCardNote(cmd, btn, note);
+
+            if (cached?.status === 'done' && cached.html) {
+              setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', String(cached.html), false);
+              cardNote.classList.remove('loading');
+              setupHoverInteractions(cardNote);
+            } else if (cached?.status === 'error') {
+              setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', `<div class="pzdrk-error">❌ ${escapeHtml(cached.error || 'ошибка')}</div>`, false);
+              cardNote.classList.remove('loading');
+            } else {
+              if (cached?.status === 'pending' && cached.promise) {
+                await cached.promise.catch(() => null);
+              } else {
+                flyoutPrefetchCache.set(cacheKey, { status: 'pending', html: '', text: '', error: '', startedAt: Date.now(), finishedAt: 0, promise: null });
+                pruneFlyoutPrefetchCache();
+                await runFlyoutCommand(cmd, cardNote, btn, note);
+                const html = cardNote.querySelector('.pzdrk-note-content')?.innerHTML || '';
+                const text = cardNote.querySelector('.pzdrk-note-content')?.innerText || '';
+                const failed = cardNote.querySelector('.pzdrk-error');
+                flyoutPrefetchCache.set(cacheKey, {
+                  status: failed ? 'error' : 'done',
+                  html,
+                  text,
+                  error: failed ? failed.textContent || 'ошибка' : '',
+                  startedAt: Date.now(),
+                  finishedAt: Date.now(),
+                  promise: null
+                });
+                pruneFlyoutPrefetchCache();
+              }
+
+              const resolved = flyoutPrefetchCache.get(cacheKey);
+              if (resolved?.status === 'done' && resolved.html) {
+                setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', String(resolved.html), false);
+              } else if (resolved?.status === 'error') {
+                setFlyoutContent(cardNote, cmd?.title || cmd?.id || 'Action', `<div class="pzdrk-error">❌ ${escapeHtml(resolved.error || 'ошибка')}</div>`, false);
+              }
+              cardNote.classList.remove('loading');
+              setupHoverInteractions(cardNote);
+            }
+          } else {
+            await runCommand(cmd, { sourceNote: note });
+          }
+        } finally {
+          renderFloatingHints(note);
+          updateNoteActionsPlacement(note);
+        }
+      });
+
+      container.appendChild(btn);
+      btnById.set(cmd.id, btn);
     });
 
-    container.appendChild(btn);
-    btnById.set(cmd.id, btn);
-  });
+    updateNoteActionsPlacement(note);
 
-  updateNoteActionsPlacement(note);
-
-  if (actionFlyout?.pinned && actionFlyout.cmdId) {
-    const pinnedBtn = btnById.get(actionFlyout.cmdId);
-    if (pinnedBtn) {
-      actionFlyout.anchorEl = pinnedBtn;
-      positionActionFlyout(pinnedBtn);
-    } else {
-      hideActionFlyout(true);
+    if (actionFlyout?.pinned && actionFlyout.cmdId) {
+      const pinnedBtn = btnById.get(actionFlyout.cmdId);
+      if (pinnedBtn) {
+        actionFlyout.anchorEl = pinnedBtn;
+        positionActionFlyout(pinnedBtn);
+      }
     }
-  }
+  });
 }
 
 function updateNoteActionsPlacement(noteElement = actionsAnchorNote) {
@@ -4724,23 +7439,28 @@ function updateNoteActionsPlacement(noteElement = actionsAnchorNote) {
 
   container.classList.remove('actions-left', 'actions-overlay');
 
-  // Default: right side; if it overflows, flip left; if still overflows, overlay inside note
   const margin = 12;
-  let r = container.getBoundingClientRect();
-  if (r.right > (window.innerWidth - margin)) {
+  const noteRect = note.getBoundingClientRect();
+  const containerWidth = Math.max(container.offsetWidth || 0, parseFloat(getComputedStyle(container).width) || 0, 156);
+  const nav = note.querySelector('.pzdrk-note-nav');
+  const navPenalty = nav && !nav.classList.contains('nav-overlay') ? ((nav.offsetWidth || 0) + 12) : 0;
+  const rightSpace = window.innerWidth - noteRect.right - margin;
+  const leftSpace = noteRect.left - margin - navPenalty;
+  const preferOverlay = window.innerWidth < 1380 || noteRect.width < 540;
+
+  if (!preferOverlay && rightSpace >= containerWidth) {
+    // keep default right-side placement
+  } else if (!preferOverlay && leftSpace >= containerWidth) {
     container.classList.add('actions-left');
-    r = container.getBoundingClientRect();
-    if (r.left < margin) {
-      container.classList.remove('actions-left');
-      container.classList.add('actions-overlay');
-    }
+  } else {
+    container.classList.add('actions-overlay');
   }
 
   if (actionFlyout?.note && actionFlyout.note.isConnected) positionActionFlyout(actionFlyout.anchorEl);
 }
 
 window.addEventListener('resize', () => {
-  updateNoteActionsPlacement();
+  getActionEnabledNotes().forEach(note => updateNoteActionsPlacement(note));
   document.querySelectorAll('.pzdrk-note').forEach(n => updateNoteNavPlacement(n));
   scheduleLayoutNotes();
 });
@@ -4755,12 +7475,12 @@ async function executeAction(action, options = {}) {
 
   try {
     if (action.type === 'mindmap') {
-      await generateMindmap();
+      await generateMindmap(options?.sourceNote || null);
       return;
     }
 
     const settings = await getSettings().catch(() => ({ actionPrompts: {} }));
-    const ctx = getCommandContext();
+    const ctx = getCommandContext(options?.sourceNote || null);
     const override = String(settings.actionPrompts?.[action.type] || '').trim();
     const tpl = override || DEFAULT_ACTION_PROMPTS[action.type];
     if (!tpl) throw new Error('Нет промпта для действия: ' + action.type);
@@ -4775,6 +7495,8 @@ async function executeAction(action, options = {}) {
       loading: true
     });
     note.dataset.pinned = 'true';
+    note.dataset.actionsEnabled = 'true';
+    if (options?.sourceNote?.dataset?.noteId) note.dataset.sourceNoteId = options.sourceNote.dataset.noteId;
     if (targetNote) {
       const titleEl = note.querySelector('.pzdrk-note-title');
       if (titleEl) titleEl.textContent = action.title || 'Action';
@@ -4785,10 +7507,11 @@ async function executeAction(action, options = {}) {
       note.classList.add('loading');
     }
 
-    const result = await callGroq(prompt, STYLE_RULES);
+    const result = await callGroq(prompt, STYLE_RULES, { temperature: 0.35, max_tokens: getTaskMaxTokens(settings, 1800, 256) });
     note.querySelector('.pzdrk-note-content').innerHTML = formatRichText(result);
     note.classList.remove('loading');
     setupHoverInteractions(note);
+    createFloatingHints(note);
     positionActionFlyout();
   } catch (e) {
     if (note && note.isConnected) {
@@ -4805,127 +7528,540 @@ async function executeAction(action, options = {}) {
 
 // ============ MINDMAP v2 (Deep Parallel) ============
 
-async function generateMindmap() {
-  const content = lastSummaryData?.pageContent || extractPageContent();
-  const summary = lastSummaryContent || '';
-  
+async function generateMindmap(sourceNote = null) {
+  const settings = runtimeSettings || await getSettings().catch(() => ({}));
+  const rawPageContent = lastSummaryData?.pageContent || extractPageContent();
+  const sourceText = String(sourceNote?.querySelector?.('.pzdrk-note-content')?.innerText || '').trim();
+  const sourceTitle = String(sourceNote?.querySelector?.('.pzdrk-note-title')?.textContent || '').trim();
+  const content = clipPromptInput(
+    sourceText
+      ? `ФОКУС-КАРТОЧКА: ${sourceTitle || 'текущий результат'}\n${sourceText}\n\nКОНТЕНТ СТРАНИЦЫ:\n${rawPageContent}`
+      : rawPageContent,
+    3200
+  );
+  const summary = clipPromptInput(
+    sourceText
+      ? `ФОКУС-КАРТОЧКА: ${sourceTitle || 'текущий результат'}\n${sourceText.slice(0, 1400)}\n\nСВОДКА СТРАНИЦЫ:\n${lastSummaryContent || ''}`
+      : (lastSummaryContent || ''),
+    1600
+  );
+
   const note = createNote({
-    title: 'Mindmap v2',
+    title: 'Карта',
     type: 'mindmap',
-    content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Генерация (6 потоков)...</div>',
+    content: '<div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Собираю карту темы…</div>',
     collapsed: false,
     loading: true
   });
   note.dataset.pinned = 'true';
-  note.style.width = '550px';
-  note.style.maxHeight = '75vh';
+  note.dataset.actionsEnabled = 'true';
+  note.style.width = 'min(1040px, calc(100vw - 56px))';
+  note.style.maxWidth = 'min(1040px, calc(100vw - 32px))';
+  note.style.maxHeight = '82vh';
 
   try {
-    // 1. Initial Skeleton
-    const prompt = PROMPTS.mindmap
-      .replace('{content}', content.substring(0, 4000))
-      .replace('{summary}', summary.substring(0, 1500));
-    const result = await callGroq(prompt, 'Только JSON');
-    
-    let data;
-    try { const m = result.match(/\{[\s\S]*\}/); data = JSON.parse(m[0]); } catch (e) { throw new Error('JSON 1 failed'); }
-
-    if (!data.nodes) data.nodes = [];
-
-    // 2. Parallel Expansion (6 top branches)
-    const expansionTargets = data.nodes.slice(0, 6);
-    if (expansionTargets.length > 0) {
-      const updates = await Promise.all(expansionTargets.map(node => 
-        callGroq(
-          PROMPTS.mindmapExpand.replace('{label}', node.label).replace('{description}', node.description || '').replace('{content}', content.substring(0, 2000)),
-          'Только JSON массив'
-        ).then(res => {
-          try {
-            const m = res.match(/\[[\s\S]*\]/);
-            return m ? JSON.parse(m[0]) : [];
-          } catch (e) { return []; }
-        }).catch(() => [])
-      ));
-
-      // Merge children
-      expansionTargets.forEach((node, i) => {
-        if (updates[i] && updates[i].length) {
-          node.children = (node.children || []).concat(updates[i]);
-        }
+    const contentEl = note.querySelector('.pzdrk-note-content');
+    const setMindmapStage = (title, detail = '') => {
+      if (!contentEl) return;
+      contentEl.innerHTML = renderStateCard({
+        tone: 'waiting',
+        icon: '🗺',
+        title,
+        body: detail || 'Сначала собираю каркас, затем расширяю кластеры, сигналы и вопросы.',
+        compact: true
       });
+    };
+
+    const repairMindmapObject = async (raw) => {
+      const repaired = await callGroq(
+        `Исправь ответ в корректный JSON объект mindmap. Верни ТОЛЬКО JSON без Markdown и комментариев.\n\nRAW:\n${String(raw || '').slice(0, 12000)}`,
+        'Только JSON объект.',
+        { temperature: 0.0, max_tokens: getTaskMaxTokens(settings, 2400, 700) }
+      );
+      return normalizeMindmapData(repaired);
+    };
+
+    const repairMindmapArray = async (raw) => {
+      const repaired = await callGroq(
+        `Исправь ответ в корректный JSON массив children. Верни ТОЛЬКО JSON массив без Markdown и комментариев.\n\nRAW:\n${String(raw || '').slice(0, 8000)}`,
+        'Только JSON массив.',
+        { temperature: 0.0, max_tokens: getTaskMaxTokens(settings, 1200, 300) }
+      );
+      return parseJsonArray(repaired);
+    };
+
+    // 1. Initial scaffold
+    setMindmapStage('Собираю глубокий каркас карты…', 'Сначала плотный каркас с кластерами и подветками, потом точечно углубляю развилки.');
+    const prompt = PROMPTS.mindmap
+      .replace('{content}', content)
+      .replace('{summary}', summary || '—');
+    const result = await callGroq(prompt, 'Только JSON объект.', { temperature: 0.22, max_tokens: getTaskMaxTokens(settings, 2600, 820) });
+
+    let data = normalizeMindmapData(result);
+    if (!data) data = await repairMindmapObject(result).catch(() => null);
+    if (!data) throw new Error('JSON карты невалиден');
+
+    const expandedIds = new Set();
+    const expandMindmapTargets = async (targets, stageTitle, contentLimit = 2200, outputBudget = 760) => {
+      const uniqueTargets = (Array.isArray(targets) ? targets : []).filter((node) => {
+        const nodeId = String(node?.id || '').trim();
+        if (!nodeId || expandedIds.has(nodeId)) return false;
+        expandedIds.add(nodeId);
+        return true;
+      });
+      if (!uniqueTargets.length) return;
+
+      let completed = 0;
+      setMindmapStage(stageTitle, `${completed}/${uniqueTargets.length}`);
+
+      await runWithConcurrency(uniqueTargets, getAdaptiveParallelLimit(settings, Math.min(6, Math.max(4, uniqueTargets.length)), 6, 2), async (node) => {
+        const existingChildren = (node.children || []).map(child => `- ${child.label}`).join('\n') || '—';
+        const flatten = flattenMindmapNodes(data.nodes);
+        const nodeDepth = flatten.find(entry => entry.node === node)?.depth ?? 0;
+        const inheritedGroup = normalizeMindmapGroup(node.group || '', node.label || '');
+        const expandPrompt = PROMPTS.mindmapExpand
+          .replace('{label}', node.label)
+          .replace('{description}', node.description || '—')
+          .replace('{existingChildren}', existingChildren)
+          .replace('{content}', buildMindmapExpansionContext(content, summary, node, contentLimit))
+          .replace('{summary}', summary || '—');
+
+        const rawChildren = await callGroq(expandPrompt, 'Только JSON массив.', {
+          temperature: 0.24,
+          max_tokens: getTaskMaxTokens(settings, outputBudget, 280)
+        }).catch(() => '');
+
+        let parsedChildren = parseJsonArray(rawChildren);
+        if (!parsedChildren) parsedChildren = await repairMindmapArray(rawChildren).catch(() => null);
+
+        if (parsedChildren) {
+          const normalizedChildren = normalizeMindmapNodes(parsedChildren, `${node.id}_`, nodeDepth + 1, MINDMAP_TREE_MAX_DEPTH, inheritedGroup);
+          if (normalizedChildren.length) {
+            node.children = mergeMindmapChildren(node.children || [], normalizedChildren, {
+              prefix: `${node.id}_`,
+              depth: nodeDepth + 1,
+              maxDepth: MINDMAP_TREE_MAX_DEPTH,
+              inheritedGroup
+            });
+          }
+        }
+
+        completed++;
+        setMindmapStage(stageTitle, `${completed}/${uniqueTargets.length}`);
+      });
+    };
+
+    // 2. Adaptive multi-wave expansion: deeper map, smaller/faster payloads per wave
+    for (const wave of buildMindmapExpansionPlan(data)) {
+      const pickedTargets = wave.pickTargets?.();
+      const targets = Array.isArray(pickedTargets) ? pickedTargets : [];
+      if (!targets.length) continue;
+      await expandMindmapTargets(targets, wave.title, wave.contentLimit, wave.maxTokens);
     }
 
+    data.metadata = {
+      ...(data.metadata || {}),
+      nodeCount: countMindmapNodes(data.nodes),
+      leafCount: countMindmapLeaves(data.nodes),
+      clusterCount: data.nodes.length,
+      maxDepth: getMindmapMaxDepth(data.nodes),
+      branchCount: countMindmapBranches(data.nodes),
+      mapStyle: String(data.metadata?.mapStyle || 'clustered-lanes').trim().slice(0, 24) || 'clustered-lanes'
+    };
+    const allEdgeLinks = buildMindmapEdgeOverview(data, 200);
+    data.metadata.edgeCount = allEdgeLinks.length;
+    const edgeTargetLookup = new Map();
+    allEdgeLinks
+      .filter(item => item?.targetId)
+      .forEach((item) => {
+        const label = String(item.label || '').trim();
+        const targetId = String(item.targetId || '').trim();
+        if (!targetId) return;
+        const targetLabel = label.includes('→') ? label.split('→').pop() : label;
+        const targetKey = String(targetLabel || '').trim().toLowerCase();
+        if (targetKey && !edgeTargetLookup.has(targetKey)) edgeTargetLookup.set(targetKey, targetId);
+      });
+
     // Render Mindmap
-    const renderNode = (node, level = 0) => {
-      const hasChildren = node.children && node.children.length > 0;
-      let html = `<div class="pzdrk-mm-node pzdrk-mm-level-${level}" data-level="${level}">`;
-      
-      html += `<div class="pzdrk-mm-header">
-        ${hasChildren ? '<span class="pzdrk-mm-toggle">▼</span>' : '<span class="pzdrk-mm-bullet">●</span>'}
-        <span class="pzdrk-mm-label">${escapeHtml(node.label)}</span>
+    const renderLane = (title, items, variant, icon) => {
+      const list = normalizeStringList(items || [], 4, 180);
+      if (!list.length) return '';
+      return `<div class="pzdrk-mm-lane pzdrk-mm-lane-${variant}">
+        <div class="pzdrk-mm-lane-title"><span class="pzdrk-mm-lane-icon">${icon}</span>${escapeHtml(title)}</div>
+        <div class="pzdrk-mm-lane-items">
+          ${list.map(item => `<div class="pzdrk-mm-lane-item">${formatRichInline(stripMindmapEdgeMarkup(item))}</div>`).join('')}
+        </div>
       </div>`;
-      
+    };
+
+    const renderEdgeLane = (refs = []) => {
+      const list = Array.from(new Set((Array.isArray(refs) ? refs : []).map(ref => normalizeMindmapGroup(ref, '')).filter(Boolean))).slice(0, 4);
+      if (!list.length) return '';
+      return `<div class="pzdrk-mm-lane pzdrk-mm-lane-edge">
+        <div class="pzdrk-mm-lane-title"><span class="pzdrk-mm-lane-icon">↔</span>Связи</div>
+        <div class="pzdrk-mm-lane-items">
+          ${list.map((ref) => {
+            const targetId = edgeTargetLookup.get(String(ref).toLowerCase()) || '';
+            const body = escapeHtml(`Связь с ${ref}`);
+            if (targetId) {
+              return `<button class="pzdrk-mm-lane-item pzdrk-mm-lane-item-link" type="button" data-mm-jump="${escapeAttr(targetId)}">${body}</button>`;
+            }
+            return `<div class="pzdrk-mm-lane-item">${body}</div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    };
+
+    const renderOverviewCard = (title, items, tone, icon) => {
+      const list = Array.isArray(items) ? items : [];
+      if (!list.length) return '';
+      return `<div class="pzdrk-mm-focus-card pzdrk-mm-focus-card-${tone}">
+        <div class="pzdrk-mm-focus-title"><span class="pzdrk-mm-focus-icon">${icon}</span>${escapeHtml(title)}</div>
+        <div class="pzdrk-mm-focus-items">
+          ${list.map(item => {
+            const targetId = String(item?.targetId || '').trim();
+            const tag = targetId ? 'button' : 'div';
+            const attrs = targetId ? ` type="button" class="pzdrk-mm-focus-item pzdrk-mm-focus-item-link" data-mm-jump="${escapeAttr(targetId)}"` : ` class="pzdrk-mm-focus-item"`;
+            return `<${tag}${attrs}>
+              <div class="pzdrk-mm-focus-item-label">${escapeHtml(item.label || 'Узел')}</div>
+              <div class="pzdrk-mm-focus-item-text">${formatRichInline(item.text || '')}</div>
+            </${tag}>`;
+          }).join('')}
+        </div>
+      </div>`;
+    };
+
+    const renderNode = (node, level = 0, parentGroup = '') => {
+      const hasChildren = Array.isArray(node?.children) && node.children.length > 0;
+      const normalizedKind = normalizeMindmapKind(node?.kind, level);
+      const kindLabel = mindmapKindLabel(normalizedKind, level);
+      const groupLabel = normalizeMindmapGroup(node?.group || '', parentGroup);
+      const childCount = countMindmapNodes(node.children || []);
+      const signalCount = countMindmapSignals(node);
+      const edgeRefs = extractMindmapEdgeRefs(node?.description, node?.insights, node?.evidence, node?.questions);
+      const edgeCount = edgeRefs.length;
+      const searchText = escapeAttr(getMindmapSearchText(node));
+      const nodeModes = escapeAttr(getMindmapModesForNode(node).join(' '));
+      const classes = ['pzdrk-mm-node', `pzdrk-mm-level-${Math.min(level, 4)}`, `pzdrk-mm-kind-${normalizedKind}`];
+      if (level === 0) classes.push('pzdrk-mm-cluster');
+      if (hasChildren) classes.push('pzdrk-mm-branch');
+      if (hasChildren && level >= 2) classes.push('collapsed');
+
+      let html = `<div class="${classes.join(' ')}" data-level="${level}" data-search="${searchText}" data-kind="${escapeAttr(normalizedKind)}" data-modes="${nodeModes}" data-node-id="${escapeAttr(node.id || '')}">`;
+      html += `<div class="pzdrk-mm-header">
+        <div class="pzdrk-mm-header-main">
+          ${hasChildren ? '<span class="pzdrk-mm-toggle">▼</span>' : '<span class="pzdrk-mm-bullet">●</span>'}
+          <div class="pzdrk-mm-title-wrap">
+            <div class="pzdrk-mm-label">${escapeHtml(node.label)}</div>
+          </div>
+        </div>
+        <div class="pzdrk-mm-badges">
+          <span class="pzdrk-mm-badge pzdrk-mm-badge-kind">${escapeHtml(kindLabel)}</span>
+          ${groupLabel && groupLabel !== node.label ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-group">${escapeHtml(groupLabel)}</span>` : ''}
+          ${signalCount ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-signals">${signalCount} линий</span>` : ''}
+          ${edgeCount ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-edges">${edgeCount} связи</span>` : ''}
+          ${hasChildren ? `<span class="pzdrk-mm-count">${childCount}</span>` : ''}
+        </div>
+      </div>`;
+
       if (node.description) {
-        html += `<div class="pzdrk-mm-desc">${formatRichText(node.description)}</div>`;
+        html += `<div class="pzdrk-mm-desc">${formatRichText(stripMindmapEdgeMarkup(node.description))}</div>`;
       }
-      
-      if (node.insights && node.insights.length) {
-        html += `<div class="pzdrk-mm-insights">${node.insights.map(i => `<span class="pzdrk-mm-insight">💡 ${escapeHtml(i)}</span>`).join('')}</div>`;
+
+      const lanes = [
+        renderLane('Линии', node.insights || [], 'insight', '✦'),
+        renderLane('Сигналы', node.evidence || [], 'evidence', '◦'),
+        renderLane('Проверить', node.questions || [], 'question', '?'),
+        renderEdgeLane(edgeRefs)
+      ].filter(Boolean);
+      if (lanes.length) {
+        html += `<div class="pzdrk-mm-lanes">${lanes.join('')}</div>`;
       }
 
       if (hasChildren) {
-        html += `<div class="pzdrk-mm-children">`;
-        node.children.forEach(child => { html += renderNode(child, level + 1); });
+        const groupedChildren = groupMindmapNodesByGroup(node.children, level + 1, groupLabel || node.label);
+        const showGroupTitles = groupedChildren.length > 1 || (
+          groupedChildren.length === 1
+          && groupedChildren[0].label
+          && groupedChildren[0].label !== (groupLabel || node.label)
+        );
+        html += `<div class="pzdrk-mm-children${level === 0 ? ' pzdrk-mm-children-top' : ''}">`;
+        groupedChildren.forEach((group) => {
+          if (showGroupTitles && group.label) {
+            html += `<div class="pzdrk-mm-group-title" data-mm-group-title>${escapeHtml(group.label)}</div>`;
+          }
+          group.items.forEach((child) => {
+            html += renderNode(child, level + 1, group.label || groupLabel || node.label);
+          });
+        });
         html += `</div>`;
       }
-      
+
       html += `</div>`;
       return html;
     };
 
-    let html = `<div class="pzdrk-mindmap">`;
-    data.nodes.forEach(node => { html += renderNode(node, 0); });
-    
-    // Metadata footer
     const meta = data.metadata || {};
-    html += `<div class="pzdrk-mm-metadata">
-      <div class="pzdrk-mm-meta-item">Domain: ${escapeHtml(meta.domain || 'N/A')}</div>
-      <div class="pzdrk-mm-meta-item">Complexity: ${escapeHtml(meta.complexity || 'N/A')}</div>
-      <div class="pzdrk-mm-meta-item">Nodes: ${data.nodes.reduce((acc, n) => acc + 1 + (n.children?.length||0), 0)}+</div>
+    const localizeMetaValue = (key, value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '—';
+      const normalized = raw.toLowerCase();
+      if (key === 'complexity') {
+        if (normalized === 'high') return 'высокая';
+        if (normalized === 'medium') return 'средняя';
+        if (normalized === 'low') return 'низкая';
+      }
+      if (key === 'coverage') {
+        if (normalized === 'broad') return 'широкое';
+        if (normalized === 'medium') return 'среднее';
+        if (normalized === 'narrow') return 'узкое';
+      }
+      if (key === 'mapStyle') {
+        if (normalized === 'clustered-lanes' || normalized === 'clustered') return 'кластерный';
+      }
+      return raw;
+    };
+    const overview = buildMindmapOverview(data, 4);
+    const edgeOverview = allEdgeLinks.slice(0, 5);
+    const searchStatusDefault = 'Поиск по названиям, группам, описаниям, сигналам и вопросам';
+    let activeMode = 'all';
+    const modeLabels = {
+      all: 'все узлы',
+      risks: 'риски',
+      signals: 'сигналы',
+      questions: 'вопросы',
+      tools: 'инструменты'
+    };
+
+    let html = `<div class="pzdrk-mm-toolbar">
+      <div class="pzdrk-mm-search-wrap">
+        <input class="pzdrk-mm-search" type="search" data-mm-search placeholder="Фильтр по кластерам, группам, сигналам и вопросам…" />
+        <button class="pzdrk-mm-tool" data-mm-action="clear-filter">Сбросить</button>
+      </div>
+      <div class="pzdrk-mm-modebar">
+        <button class="pzdrk-mm-tool is-active" data-mm-mode="all">Все</button>
+        <button class="pzdrk-mm-tool" data-mm-mode="risks">Риски</button>
+        <button class="pzdrk-mm-tool" data-mm-mode="signals">Сигналы</button>
+        <button class="pzdrk-mm-tool" data-mm-mode="questions">Вопросы</button>
+        <button class="pzdrk-mm-tool" data-mm-mode="tools">Инструменты</button>
+      </div>
+      <button class="pzdrk-mm-tool" data-mm-action="clusters-only">Только кластеры</button>
+      <button class="pzdrk-mm-tool" data-mm-action="expand-3">3 уровня</button>
+      <button class="pzdrk-mm-tool" data-mm-action="expand-all">Раскрыть всё</button>
+      <button class="pzdrk-mm-tool" data-mm-action="copy-outline">Скопировать план</button>
+      <button class="pzdrk-mm-tool" data-mm-action="copy-checklist">Чеклист</button>
+      <button class="pzdrk-mm-tool" data-mm-action="copy-mermaid">Скопировать Mermaid</button>
+      <div class="pzdrk-mm-search-status" data-mm-search-status>${searchStatusDefault}</div>
     </div>`;
-    
+
+    html += `<div class="pzdrk-mm-overview">
+      <div class="pzdrk-mm-overview-title">Кластерная карта</div>
+      <div class="pzdrk-mm-overview-subtitle">Разложено по смысловым веткам, сигналам, ограничениям и следующим точкам проверки.</div>
+      <div class="pzdrk-mm-overview-pills">
+        <span class="pzdrk-mm-overview-pill">домен: ${escapeHtml(meta.domain || '—')}</span>
+        <span class="pzdrk-mm-overview-pill">сложность: ${escapeHtml(localizeMetaValue('complexity', meta.complexity))}</span>
+        <span class="pzdrk-mm-overview-pill">покрытие: ${escapeHtml(localizeMetaValue('coverage', meta.coverage || 'medium'))}</span>
+        <span class="pzdrk-mm-overview-pill">стиль: ${escapeHtml(localizeMetaValue('mapStyle', meta.mapStyle || 'clustered-lanes'))}</span>
+      </div>
+      ${overview.focusClusters.length ? `<div class="pzdrk-mm-focus-strip">
+        ${overview.focusClusters.map(cluster => `<button class="pzdrk-mm-focus-chip" data-mm-focus="${escapeAttr(cluster.id)}">${escapeHtml(cluster.label)}</button>`).join('')}
+      </div>` : ''}
+    </div>`;
+
+    html += `<div class="pzdrk-mm-focus-grid">
+      ${renderOverviewCard('Сильные сигналы', overview.topSignals, 'signal', '◦')}
+      ${renderOverviewCard('Связи между ветками', edgeOverview, 'edge', '↔')}
+      ${renderOverviewCard('Риски и ограничения', overview.topRisks, 'risk', '!')}
+      ${renderOverviewCard('Что проверить', overview.topQuestions, 'question', '?')}
+      ${renderOverviewCard('Инструменты и артефакты', overview.topTools, 'tool', '⌘')}
+    </div>`;
+
+    html += `<div class="pzdrk-mm-empty" data-mm-empty hidden>По этому фильтру узлы не найдены.</div>`;
+    html += `<div class="pzdrk-mindmap">`;
+    data.nodes.forEach(node => { html += renderNode(node, 0); });
+
+    html += `<div class="pzdrk-mm-metadata">
+      <div class="pzdrk-mm-meta-item">Кластеров: ${escapeHtml(meta.clusterCount || data.nodes.length)}</div>
+      <div class="pzdrk-mm-meta-item">Узлов: ${escapeHtml(meta.nodeCount || countMindmapNodes(data.nodes))}</div>
+      <div class="pzdrk-mm-meta-item">Листьев: ${escapeHtml(meta.leafCount || countMindmapLeaves(data.nodes))}</div>
+      <div class="pzdrk-mm-meta-item">Веток: ${escapeHtml(meta.branchCount || countMindmapBranches(data.nodes))}</div>
+      <div class="pzdrk-mm-meta-item">Глубина: ${escapeHtml(meta.maxDepth || getMindmapMaxDepth(data.nodes))}</div>
+      <div class="pzdrk-mm-meta-item">Связей: ${escapeHtml(meta.edgeCount || allEdgeLinks.length)}</div>
+    </div>`;
+
     html += `</div>`;
-    
-    // Mermaid Export
-    html += `<button class="pzdrk-mermaid-btn">Export to Mermaid</button>`;
 
     note.querySelector('.pzdrk-note-content').innerHTML = html;
     note.classList.remove('loading');
-    
+    const titleEl = note.querySelector('.pzdrk-note-title');
+    if (titleEl) titleEl.textContent = String(data.title || 'Карта').slice(0, 60);
+    const treeEl = note.querySelector('.pzdrk-mindmap');
+    const searchInput = note.querySelector('[data-mm-search]');
+    const searchStatus = note.querySelector('[data-mm-search-status]');
+    const emptyState = note.querySelector('[data-mm-empty]');
+    const modeButtons = Array.from(note.querySelectorAll('[data-mm-mode]'));
+    applyMindmapExpandToLevel(treeEl, 3);
+    refreshMindmapGroupTitleVisibility(treeEl);
+
+    const jumpToMindmapNode = (targetId) => {
+      if (!targetId || !treeEl) return;
+      if (searchInput?.value) {
+        searchInput.value = '';
+      }
+      const selectorId = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+        ? CSS.escape(String(targetId))
+        : String(targetId).replace(/["\\]/g, '\\$&');
+      const target = treeEl.querySelector(`[data-node-id="${selectorId}"]`);
+      if (!target) return;
+      let parent = target.parentElement;
+      while (parent) {
+        if (parent.classList?.contains('pzdrk-mm-node')) {
+          parent.classList.remove('collapsed');
+        }
+        parent = parent.parentElement;
+      }
+      updateMindmapFilter('');
+      target.classList.remove('pzdrk-mm-flash');
+      void target.offsetWidth;
+      target.classList.add('pzdrk-mm-flash');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    };
+
+    const updateMindmapFilter = (value = '') => {
+      const term = String(value || '').trim();
+      if (!treeEl) return;
+      if (!term) {
+        treeEl.querySelectorAll('.pzdrk-mm-hidden, .pzdrk-mm-match').forEach(nodeEl => {
+          nodeEl.classList.remove('pzdrk-mm-hidden', 'pzdrk-mm-match');
+        });
+        if (activeMode === 'all') applyMindmapExpandToLevel(treeEl, 3);
+        refreshMindmapGroupTitleVisibility(treeEl);
+        if (emptyState) emptyState.hidden = true;
+      } else {
+        const stats = applyMindmapFilter(treeEl, term, activeMode);
+        if (emptyState) emptyState.hidden = stats.visible > 0;
+        if (searchStatus) {
+          const modeLine = activeMode === 'all' ? '' : ` • режим: ${modeLabels[activeMode] || activeMode}`;
+          searchStatus.textContent = stats.visible > 0
+            ? `Совпадений: ${stats.matched} • Видимых узлов: ${stats.visible}${modeLine}`
+            : 'Совпадений не найдено';
+        }
+        return;
+      }
+
+      const stats = applyMindmapFilter(treeEl, '', activeMode);
+      if (emptyState) emptyState.hidden = stats.visible > 0;
+      if (searchStatus) {
+        searchStatus.textContent = stats.visible > 0
+          ? (activeMode === 'all'
+            ? searchStatusDefault
+            : `Режим: ${modeLabels[activeMode] || activeMode} • Видимых узлов: ${stats.visible}`)
+          : 'Совпадений не найдено';
+      }
+    };
+
+    const setMindmapMode = (mode = 'all') => {
+      activeMode = String(mode || 'all').trim().toLowerCase() || 'all';
+      modeButtons.forEach((btn) => {
+        btn.classList.toggle('is-active', btn.getAttribute('data-mm-mode') === activeMode);
+      });
+      updateMindmapFilter(searchInput?.value || '');
+    };
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => updateMindmapFilter(searchInput.value));
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          searchInput.value = '';
+          updateMindmapFilter('');
+          searchInput.blur();
+        }
+      });
+    }
+
+    modeButtons.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setMindmapMode(btn.getAttribute('data-mm-mode') || 'all');
+      });
+    });
+
     // Toggle behavior
     note.querySelectorAll('.pzdrk-mm-header').forEach(header => {
       header.addEventListener('click', (e) => {
         e.stopPropagation();
         const nodeEl = header.parentElement;
+        if (!nodeEl?.querySelector(':scope > .pzdrk-mm-children')) return;
         nodeEl.classList.toggle('collapsed');
       });
     });
 
-    // Mermaid Export handler
-    note.querySelector('.pzdrk-mermaid-btn').addEventListener('click', () => {
-      let mm = 'mindmap\n  root((' + (data.title || 'Mindmap') + '))\n';
-      const traverse = (nodes, indent) => {
-        nodes.forEach(n => {
-          mm += `${indent}${n.label.replace(/[()]/g, '')}\n`;
-          if (n.children) traverse(n.children, indent + '  ');
-        });
-      };
-      traverse(data.nodes, '    ');
-      navigator.clipboard.writeText(mm);
-      showToast('📋 Mermaid скопирован');
+    note.querySelectorAll('[data-mm-action]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = btn.getAttribute('data-mm-action');
+        if (!treeEl) return;
+
+        if (action === 'clear-filter') {
+          if (searchInput) searchInput.value = '';
+          updateMindmapFilter('');
+          showToast('🔎 Фильтр очищен');
+          return;
+        }
+        if (action === 'clusters-only') {
+          setMindmapMode('all');
+          treeEl.querySelectorAll(':scope > .pzdrk-mm-node').forEach(nodeEl => nodeEl.classList.add('collapsed'));
+          showToast('🧩 Оставил только главные кластеры');
+          return;
+        }
+        if (action === 'expand-3') {
+          applyMindmapExpandToLevel(treeEl, 3);
+          showToast('🗂 Раскрыто до 3 уровней');
+          return;
+        }
+        if (action === 'expand-all') {
+          treeEl.querySelectorAll('.pzdrk-mm-node.collapsed').forEach(nodeEl => nodeEl.classList.remove('collapsed'));
+          showToast('🧭 Все ветки раскрыты');
+          return;
+        }
+        if (action === 'copy-outline') {
+          await copyTextToClipboard(buildMindmapOutline(data));
+          showToast('📋 План скопирован');
+          return;
+        }
+        if (action === 'copy-checklist') {
+          await copyTextToClipboard(buildMindmapChecklist(data));
+          showToast('📋 Чеклист скопирован');
+          return;
+        }
+        if (action === 'copy-mermaid') {
+          await copyTextToClipboard(buildMindmapMermaid(data));
+          showToast('📋 Mermaid скопирован');
+        }
+      });
+    });
+
+    note.querySelectorAll('[data-mm-focus]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        jumpToMindmapNode(btn.getAttribute('data-mm-focus'));
+      });
+    });
+
+    note.querySelectorAll('[data-mm-jump]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        jumpToMindmapNode(btn.getAttribute('data-mm-jump'));
+      });
     });
 
     setupHoverInteractions(note);
+    createFloatingHints(note);
 
   } catch (error) {
     note.querySelector('.pzdrk-note-content').innerHTML = `<div class="pzdrk-error">❌ ${error.message}</div>`;
@@ -4949,7 +8085,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (action === 'trackerBlocked') {
     trackersBlocked++;
     refreshTrackerBadges();
-    try { sendResponse?.({ success: true }); } catch (e) {}
+    try { sendResponse?.({ success: true }); } catch (e) { }
     return;
   }
 

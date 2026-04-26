@@ -1,0 +1,47 @@
+{
+  "sync_metadata": {
+    "last_sync": null,
+    "next_sync": "pending_decision",
+    "sync_enabled": false,
+    "rate_limit": "5_req_per_sec",
+    "total_tasks_to_sync": 156,
+    "sync_status": "not_configured"
+  },
+  "tana_configuration": {
+    "api_endpoint": "https://api.tana.inc",
+    "workspace_id": null,
+    "supertag_mapping": {
+      "task": "SYS_T01",
+      "project": "SYS_T02",
+      "decision": "SYS_T03"
+    },
+    "field_mapping": {
+      "task_id": "id",
+      "title": "name",
+      "priority": "priority",
+      "status": "status",
+      "estimated_hours": "estimate",
+      "dependencies": "dependencies",
+      "track": "track"
+    }
+  },
+  "sync_queue": [
+    {
+      "action": "create_node",
+      "node_type": "decision",
+      "data": {
+        "id": "DECISION-001",
+        "title": "Choose v7.0 Architecture Track",
+        "priority": "CRITICAL",
+        "status": "pending"
+      }
+    }
+  ],
+  "sync_errors": [],
+  "notes": [
+    "Tana sync not configured - requires API key and workspace setup",
+    "Sync will be enabled after architectural decision is made",
+    "Rate limit: 5 requests per second as per spec",
+    "Total 156 tasks will be synced once configuration is complete"
+  ]
+}
