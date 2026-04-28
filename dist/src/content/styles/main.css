@@ -99,24 +99,24 @@
 .pzdrk-resize-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
 
 .pzdrk-note > [class^="pzdrk-resize-"]::after {
-  content: "";
+  content: none;
   position: absolute;
   inset: 2px;
   border-radius: 999px;
-  background: rgba(125, 211, 252, 0.05);
-  opacity: 0.6;
+  background: transparent;
+  opacity: 0;
+  box-shadow: none;
   transition: opacity 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
 }
 
 .pzdrk-note:hover > [class^="pzdrk-resize-"]::after,
 .pzdrk-note.is-resizing > [class^="pzdrk-resize-"]::after {
-  opacity: 1;
-  background: rgba(125, 211, 252, 0.12);
-  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.08);
+  opacity: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.pzdrk-note.is-dragging .pzdrk-note-surface,
-.pzdrk-note.is-resizing .pzdrk-note-surface {
+.pzdrk-note.is-dragging .pzdrk-note-surface {
   box-shadow:
     0 26px 64px rgba(2, 6, 12, 0.52),
     0 40px 96px rgba(2, 6, 12, 0.28),

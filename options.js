@@ -1027,7 +1027,7 @@ PAGE SNIPPET: {content}`,
   const showRightActionsEl = document.getElementById('showRightActionButtons');
   if (showRightActionsEl) showRightActionsEl.checked = settings.showRightActionButtons === true;
   const artifactAutoSaveEl = document.getElementById('artifactAutoSave');
-  if (artifactAutoSaveEl) artifactAutoSaveEl.checked = settings.artifactAutoSave === true;
+  if (artifactAutoSaveEl) artifactAutoSaveEl.checked = settings.artifactAutoSave !== false;
 
   const telegramEnabledEl = document.getElementById('telegramEnabled');
   if (telegramEnabledEl) telegramEnabledEl.checked = localSettings.telegramEnabled === true;

@@ -624,7 +624,7 @@ async function getSettings() {
     mapReduceEnabled: settings.mapReduceEnabled !== false,
     showLeftNavButtons: settings.showLeftNavButtons === true,
     showRightActionButtons: settings.showRightActionButtons === true,
-    artifactAutoSave: settings.artifactAutoSave === true,
+    artifactAutoSave: settings.artifactAutoSave !== false,
     promptOverrides: (settings.promptOverrides && typeof settings.promptOverrides === 'object') ? settings.promptOverrides : {},
     telegramEnabled: localSettings.telegramEnabled === true,
     telegramSendHtml: localSettings.telegramSendHtml !== false,
@@ -2193,6 +2193,61 @@ function isWorkspaceTabCommand(cmd) {
   return DIRECT_WORKSPACE_COMMAND_IDS.has(cmd.id) || isActionFlyoutCommand(cmd);
 }
 
+const WORKSPACE_COMMAND_TITLE_FALLBACKS = {
+  summarize: 'Главная',
+  translate_page: 'Перевести страницу',
+  'translate-page': 'Перевести страницу',
+  translate_selection: 'Перевести выделение',
+  'translate-selection': 'Перевести выделение',
+  explain_selection: 'Объяснить выделение',
+  'explain-selection': 'Объяснить выделение',
+  mindmap: 'Карта',
+  twitter: 'Тред',
+  deepdive: 'Разбор',
+  automation: 'Автоматизация',
+  learning: 'Обучение',
+  share: 'Поделиться',
+  challenge: 'Оспорить',
+  timeline: 'Хронология',
+  extract: 'Извлечь',
+  briefing: 'Бриф',
+  matrix: 'Матрица',
+  sources: 'Источники',
+  opsplan: 'План',
+  faq: 'FAQ',
+  compare: 'Сравнить',
+  localization: 'Локализация',
+  frontendBuilder: 'Интерфейс',
+  frontendbuilder: 'Интерфейс',
+  renderHost: 'Деплой',
+  renderhost: 'Деплой'
+};
+
+function isGenericWorkspaceTabTitle(value) {
+  const title = String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return !title || title === 'вкладка' || title === 'tab' || title === 'untitled' || title === 'без названия';
+}
+
+function getWorkspaceCommandTitle(cmd, fallback = 'Вкладка') {
+  const title = String(cmd?.title || cmd?.label || '').trim();
+  if (!isGenericWorkspaceTabTitle(title)) return title;
+  const key = String(cmd?.id || cmd?.type || '').trim();
+  return WORKSPACE_COMMAND_TITLE_FALLBACKS[key] || fallback;
+}
+
+function resolveWorkspaceTabTitle(tabId, incomingTitle = '', previousTitle = '') {
+  const id = String(tabId || 'main');
+  const fallback = id === 'main' ? 'Главная' : 'Вкладка';
+  const incoming = String(incomingTitle || '').trim();
+  if (!isGenericWorkspaceTabTitle(incoming)) return incoming;
+
+  const previous = String(previousTitle || '').trim();
+  if (!isGenericWorkspaceTabTitle(previous)) return previous;
+
+  const commandKey = id.replace(/^cmd-/, '');
+  return WORKSPACE_COMMAND_TITLE_FALLBACKS[commandKey] || fallback;
+}
+
 const WORKSPACE_TAB_PREFETCH_DELAY_MS = 280;
 const WORKSPACE_TAB_PREFETCH_CONCURRENCY = 64;
 
@@ -2203,7 +2258,7 @@ function getWorkspaceCommandStatus(cmd) {
 
 function getWorkspaceCommandMeta(cmd, status = 'queued') {
   return {
-    title: String(cmd?.title || cmd?.id || 'Вкладка').trim(),
+    title: getWorkspaceCommandTitle(cmd),
     group: getCommandGroup(cmd),
     kind: 'command',
     cmdId: cmd?.id || '',
@@ -2212,7 +2267,7 @@ function getWorkspaceCommandMeta(cmd, status = 'queued') {
 }
 
 function renderWorkspaceCommandPlaceholder(cmd, status = 'queued') {
-  const title = String(cmd?.title || cmd?.id || 'Вкладка').trim();
+  const title = getWorkspaceCommandTitle(cmd);
   if (status === 'blocked') {
     return renderStateCard({
       tone: 'muted',
@@ -2327,7 +2382,7 @@ function upsertNoteTabMeta(note, tabId, meta = {}) {
     ...prev,
     ...meta,
     id,
-    title: String(meta.title || prev.title || 'Вкладка').trim(),
+    title: resolveWorkspaceTabTitle(id, meta.title, prev.title),
     group: String(meta.group || prev.group || 'analysis').trim(),
     status: String(meta.status || prev.status || 'ready').trim(),
     updatedAt: Date.now()
@@ -2365,8 +2420,9 @@ function syncWorkspaceActionActive(note) {
     const order = getVisibleNoteTabOrder(note);
     const index = Math.max(0, order.indexOf(activeId));
     const meta = getNoteTabMeta(note, activeId);
+    const title = resolveWorkspaceTabTitle(activeId, meta?.title, meta?.label);
     const label = pager.querySelector('.pzdrk-tab-pager-label');
-    if (label) label.textContent = `${index + 1}/${Math.max(1, order.length)} • ${meta?.title || 'Вкладка'}`;
+    if (label) label.textContent = `${index + 1}/${Math.max(1, order.length)} • ${title}`;
     pager.dataset.count = String(order.length);
     pager.querySelectorAll('.pzdrk-tab-round').forEach((btn) => {
       btn.disabled = order.length <= 1;
@@ -2385,7 +2441,7 @@ function renderWorkspaceTabStrip(note) {
   strip.setAttribute('role', 'tablist');
   strip.innerHTML = order.map((id) => {
     const meta = getNoteTabMeta(note, id) || {};
-    const title = meta.title || (id === 'main' ? 'Главная' : 'Вкладка');
+    const title = resolveWorkspaceTabTitle(id, meta.title, meta.label);
     const group = meta.group || '';
     const status = meta.status || 'ready';
     const isActive = id === activeId;
@@ -2424,7 +2480,7 @@ function activateNoteTab(note, tabId = 'main', options = {}) {
   const contentEl = ensureNoteWorkspace(note);
   if (!contentEl) return;
   const id = String(tabId || 'main');
-  const pane = getOrCreateNoteTabPane(note, id, { title: id === 'main' ? 'Главная' : 'Вкладка' });
+  const pane = getOrCreateNoteTabPane(note, id, id === 'main' ? { title: 'Главная' } : {});
   if (!pane) return;
 
   Array.from(contentEl.querySelectorAll('.pzdrk-tab-pane')).forEach(candidate => {
@@ -2514,7 +2570,7 @@ function collectNoteTabs(note) {
     const meta = getNoteTabMeta(note, id) || {};
     return {
       id,
-      title: meta.title || id,
+      title: resolveWorkspaceTabTitle(id, meta.title, meta.label || id),
       group: meta.group || '',
       kind: meta.kind || '',
       text: String(pane?.innerText || '').trim(),
