@@ -448,6 +448,30 @@
       background: rgba(255,255,255,0.025);
     }
 
+    .settings-note {
+      margin-bottom: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(125, 211, 252, 0.075), rgba(190, 242, 100, 0.035)),
+        rgba(255,255,255,0.02);
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    .settings-note strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .settings-note p {
+      margin: 0;
+      font-size: 11px;
+    }
+
     .artifact-toolbar {
       display: flex;
       align-items: center;
@@ -643,27 +667,27 @@
 
     <!-- Performance -->
     <div class="section">
-      <div class="section-title"><span class="icon">⚡</span> Performance</div>
+      <div class="section-title"><span class="icon">⚡</span> Производительность</div>
       <div class="row">
-        <div class="row-title">Max parallel requests</div>
+        <div class="row-title">Параллельные LLM-запросы</div>
         <div class="row-subtitle">Сколько LLM запросов одновременно. Для быстрых провайдеров можно держать агрессивный режим до 64 lanes.</div>
         <input type="text" id="maxParallelRequests" placeholder="64">
         <p class="hint">Если видите 429 / TPM-limit / 413, снижайте до 16–32 или ниже под конкретный провайдер.</p>
       </div>
       <div class="row">
-        <div class="row-title">Target max output tokens</div>
+        <div class="row-title">Максимальный размер ответа</div>
         <div class="row-subtitle">Лимит ответа для summary/actions/flyouts. Для <code>groq/compound</code> безопасный ceiling сейчас 8192.</div>
         <input type="text" id="targetMaxOutputTokens" placeholder="8192">
       </div>
       <div class="toggle-row">
         <div class="toggle-row-info">
-          <span>Prefetch on hover</span>
+          <span>Предзагрузка при наведении</span>
           <p>На hover по действиям справа: автогенерация (без клика)</p>
         </div>
         <label class="toggle"><input type="checkbox" id="prefetchOnHover" checked><span class="slider"></span></label>
       </div>
       <div class="row">
-        <div class="row-title">Prefetch delay (ms)</div>
+        <div class="row-title">Задержка предзагрузки (ms)</div>
         <div class="row-subtitle">Задержка перед стартом генерации после hover</div>
         <input type="text" id="prefetchDelayMs" placeholder="220">
       </div>
@@ -747,7 +771,11 @@
 
     <!-- Workspace UI -->
     <div class="section" id="workspace-ui">
-      <div class="section-title"><span class="icon">🧭</span> Workspace UI</div>
+      <div class="section-title"><span class="icon">🧭</span> Интерфейс workspace</div>
+      <div class="settings-note">
+        <strong>Навигация вкладок</strong>
+        <p>Стрелки и счётчик расположены сверху над сгенерированной страницей; чат остаётся отдельным нижним элементом и выравнивается по центру.</p>
+      </div>
       <div class="settings-grid">
         <div class="toggle-row">
           <div class="toggle-row-info">
@@ -765,7 +793,7 @@
         </div>
         <div class="toggle-row">
           <div class="toggle-row-info">
-            <span>Auto-save workspace</span>
+            <span>Автосохранение workspace</span>
             <p>Автоматически сохранять отрендеренный workspace после генерации вкладок.</p>
           </div>
           <label class="toggle"><input type="checkbox" id="artifactAutoSave"><span class="slider"></span></label>
@@ -789,7 +817,7 @@
         </div>
 
         <div class="row" style="margin-top: 18px;">
-          <div class="row-title">Telegram delivery</div>
+          <div class="row-title">Отправка в Telegram</div>
           <div class="row-subtitle">Подключите своего Telegram-бота, чтобы отправлять HTML/Markdown-снимки пользователю.</div>
         </div>
         <div class="settings-grid">

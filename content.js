@@ -3241,14 +3241,16 @@ function createNote(options = {}) {
         </div>
       </div>
       <div class="pzdrk-workspace-tabs" role="tablist" aria-label="Вкладки workspace"></div>
+      <div class="pzdrk-note-top-nav">
+        <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
+          <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
+          <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
+          <button class="pzdrk-tab-round pzdrk-tab-next" type="button" title="Следующая вкладка">›</button>
+        </div>
+      </div>
       <div class="pzdrk-note-content">${content}</div>
     </div>
     <div class="pzdrk-note-bottom-dock">
-      <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
-        <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
-        <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
-        <button class="pzdrk-tab-round pzdrk-tab-next" type="button" title="Следующая вкладка">›</button>
-      </div>
       <div class="pzdrk-note-askbar">
         <input class="pzdrk-note-ask-input" type="text" autocomplete="off" placeholder="Задать вопрос по вкладке; @главная или @ответ подтянут контекст" />
         <button class="pzdrk-note-ask-send" type="button" disabled title="Отправить вопрос">Enter</button>
