@@ -386,6 +386,8 @@ PAGE SNIPPET:
 - У каждого узла должен быть kind из набора: cluster, mechanism, actor, tool, artifact, evidence, risk, question, workflow, integration.
 - group нужен для смысловой группировки. Для top-level cluster он обязателен; для детей тоже старайся задавать осмысленно, чтобы внутри кластера возникали lane-группы.
 - label короткий и ясный; description компактный, 1 короткое предложение; insights/evidence/questions по 0-3 и без воды.
+- Для читаемого рендера держи description до 90-120 символов, а элементы insights/evidence/questions до 80-110 символов.
+- Не дублируй одну и ту же мысль в description, insights и evidence: лучше 1 плотная строка, чем несколько декоративных повторов.
 - Не делай карту линейной. Внутри кластеров обязательно должны быть разные подтипы узлов: что это, как работает, где применяется, какие риски, что проверить, какие сигналы уже есть.
 - Минимум у половины top-level clusters должны быть видимые внутренние подгруппы по смыслу: например "механика", "инструменты", "риски", "сигналы", "следующие проверки".
 - Явно подсвечивай связи между ветками: зависимости, конфликты, handoff-узлы, общие артефакты и decision points указывай в description / insights, чтобы карта читалась как сеть, а не как независимые списки.
@@ -9289,6 +9291,38 @@ async function generateMindmap(sourceNote = null, options = {}) {
       </div>`;
     };
 
+    const getEdgeTargetId = (ref = '') => edgeTargetLookup.get(String(ref || '').trim().toLowerCase()) || '';
+    const collectCompactFacts = (node, refs = []) => {
+      const rows = [];
+      normalizeStringList(node?.insights || [], 2, 118).forEach(text => {
+        rows.push({ tone: 'insight', label: 'Линия', text: stripMindmapEdgeMarkup(text) });
+      });
+      normalizeStringList(node?.evidence || [], 2, 118).forEach(text => {
+        rows.push({ tone: 'evidence', label: 'Сигнал', text: stripMindmapEdgeMarkup(text) });
+      });
+      normalizeStringList(node?.questions || [], 2, 118).forEach(text => {
+        rows.push({ tone: 'question', label: 'Проверить', text: stripMindmapEdgeMarkup(text) });
+      });
+      Array.from(new Set((Array.isArray(refs) ? refs : []).map(ref => normalizeMindmapGroup(ref, '')).filter(Boolean))).slice(0, 2).forEach(ref => {
+        rows.push({ tone: 'edge', label: 'Связь', text: `→ ${ref}`, targetId: getEdgeTargetId(ref) });
+      });
+      return rows.filter(row => row.text).slice(0, 4);
+    };
+
+    const renderCompactFacts = (node, refs = []) => {
+      const rows = collectCompactFacts(node, refs);
+      if (!rows.length) return '';
+      return `<div class="pzdrk-mm-facts">
+        ${rows.map((row) => {
+          const tag = row.targetId ? 'button' : 'div';
+          const attrs = row.targetId
+            ? ` type="button" class="pzdrk-mm-fact pzdrk-mm-fact-${escapeAttr(row.tone)} pzdrk-mm-fact-link" data-mm-jump="${escapeAttr(row.targetId)}"`
+            : ` class="pzdrk-mm-fact pzdrk-mm-fact-${escapeAttr(row.tone)}"`;
+          return `<${tag}${attrs}><span class="pzdrk-mm-fact-label">${escapeHtml(row.label)}</span><span class="pzdrk-mm-fact-text">${formatRichInline(row.text)}</span></${tag}>`;
+        }).join('')}
+      </div>`;
+    };
+
     const renderOverviewCard = (title, items, tone, icon) => {
       const list = Array.isArray(items) ? items : [];
       if (!list.length) return '';
@@ -9334,7 +9368,7 @@ async function generateMindmap(sourceNote = null, options = {}) {
         </div>
         <div class="pzdrk-mm-badges">
           <span class="pzdrk-mm-badge pzdrk-mm-badge-kind">${escapeHtml(kindLabel)}</span>
-          ${groupLabel && groupLabel !== node.label ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-group">${escapeHtml(groupLabel)}</span>` : ''}
+          ${groupLabel && groupLabel !== node.label && level <= 1 ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-group">${escapeHtml(groupLabel)}</span>` : ''}
           ${signalCount ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-signals">${signalCount} линий</span>` : ''}
           ${edgeCount ? `<span class="pzdrk-mm-badge pzdrk-mm-badge-edges">${edgeCount} связи</span>` : ''}
           ${hasChildren ? `<span class="pzdrk-mm-count">${childCount}</span>` : ''}
@@ -9351,8 +9385,10 @@ async function generateMindmap(sourceNote = null, options = {}) {
         renderLane('Проверить', node.questions || [], 'question', '?'),
         renderEdgeLane(edgeRefs)
       ].filter(Boolean);
-      if (lanes.length) {
+      if (level === 0 && lanes.length) {
         html += `<div class="pzdrk-mm-lanes">${lanes.join('')}</div>`;
+      } else if (level >= 1) {
+        html += renderCompactFacts(node, edgeRefs);
       }
 
       if (hasChildren) {
@@ -9488,7 +9524,7 @@ async function generateMindmap(sourceNote = null, options = {}) {
     const searchStatus = mindmapRoot.querySelector('[data-mm-search-status]');
     const emptyState = mindmapRoot.querySelector('[data-mm-empty]');
     const modeButtons = Array.from(mindmapRoot.querySelectorAll('[data-mm-mode]'));
-    applyMindmapExpandToLevel(treeEl, 3);
+    applyMindmapExpandToLevel(treeEl, 2);
     refreshMindmapGroupTitleVisibility(treeEl);
 
     const jumpToMindmapNode = (targetId) => {

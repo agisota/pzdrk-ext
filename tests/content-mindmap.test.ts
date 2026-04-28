@@ -547,4 +547,15 @@ describe('content mindmap helpers', () => {
     ]));
     expect(edges[0].text).not.toContain('[[edge:');
   });
+
+  it('keeps the rendered mindmap compact by default', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../content.js'), 'utf8');
+    const css = fs.readFileSync(path.resolve(__dirname, '../content.css'), 'utf8');
+
+    expect(source).toContain('renderCompactFacts(node, edgeRefs)');
+    expect(source).toContain('applyMindmapExpandToLevel(treeEl, 2)');
+    expect(css).toContain('.pzdrk-mm-facts');
+    expect(css).toContain('grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));');
+    expect(css).toContain('content: none;');
+  });
 });
