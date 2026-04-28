@@ -57,7 +57,7 @@ function estimateTokens(text) {
 // ============ CACHE ============
 
 // Bump to invalidate old summaries when prompts/layout change
-const CACHE_PREFIX = 'pzdrk_cache_v4_';
+const CACHE_PREFIX = 'pzdrk_cache_v5_';
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TARGET_MAX_OUTPUT_TOKENS = 8192;
 const DEFAULT_MAX_PARALLEL_REQUESTS = 64;
@@ -124,7 +124,7 @@ const PRO_REASONING_RULES = `ОПЕРАЦИОННЫЕ ПРАВИЛА:
 - Думай как senior analyst / architect / operator, а не как маркетинговый копирайтер.`;
 
 const OUTPUT_EXPANSION_RULES = `ТРЕБОВАНИЯ К ГЛУБИНЕ:
-- Лучше layered output, чем короткий пересказ: signal -> mechanics -> risks -> action.
+- Лучше layered output, чем короткий пересказ: сигнал -> как устроено -> риски -> действие.
 - В каждом крупном ответе ищи second-order effects, failure modes, dependencies и decision criteria.
 - Если материал можно применить, обязательно переходи от смысла к implementation path.
 - Не заканчивай на "это интересно"; доводи до "что делать с этим прямо сейчас".
@@ -143,6 +143,8 @@ const STYLE_RULES = `${MONDAY_PERSONA}
 - Оборачивай сущности и термины: [[entity:Название]], [[term:термин]], [[wiki:статья]], [[evidence:факт]], [[action:шаг]]
 - Практика и проверяемые утверждения важнее красивостей
 - Если чего-то не знаешь — так и скажи, предложи как проверить
+- Всегда пиши основной ответ по-русски. Если исходник на английском, переводи смысл, а не копируй английские фразы.
+- Английский допустим только для точных названий, API, команд, цитируемых терминов и URL; рядом давай русское объяснение.
 
 ${PRO_REASONING_RULES}
 
@@ -176,13 +178,13 @@ const PROMPTS = {
 ## ✳️ TL;DR
 (2–4 очень коротких пункта: в чём предмет, что главное, зачем это важно прямо сейчас)
 ## 📌 СУТЬ
-(3–6 предложений)
-## 🧭 КАРТА
-(6–14 пунктов: что тут есть)
-## ⚙️ МЕХАНИЗМЫ
-(3–6 коротких абзацев: механика, причинно-следственные связи, ограничения, зависимые решения, почему это вообще важно)
-## 🧩 ЗАЧЕМ ЭТО ВАЖНО
-(4–8 пунктов: последствия, смысл, управленческая/практическая ценность, что это меняет)
+(3–6 предложений: предмет, главный тезис, что реально утверждается, почему это не просто набор фактов)
+## 🧭 КОНТУР
+(6–14 пунктов: из каких смысловых частей состоит материал, какие темы/объекты/линии там есть)
+## ⚙️ КАК УСТРОЕНО
+(3–6 коротких абзацев: процесс, причинно-следственные связи, ограничения, зависимые решения, доказательная механика)
+## 🧩 ПРАКТИЧЕСКИЙ СМЫСЛ
+(4–8 пунктов: что это меняет для решения, работы, продукта, исследования или следующего шага)
 ## ⚠️ РИСКИ / НЕЯСНОСТИ
 (3–8 буллетов: ambiguity, missing context, execution risk, incentives, blind spots)
 ## 🛠 ПРИМЕНЕНИЕ
@@ -246,11 +248,15 @@ const PROMPTS = {
 ПРАВИЛА:
 - sections: 9–14 (каждая с emoji + label).
 - Первые две секции ОБЯЗАНЫ идти так: TL;DR, затем СУТЬ.
-- Секции обязаны покрывать: TL;DR, СУТЬ, КАРТА, МЕХАНИЗМЫ, ЗАЧЕМ ЭТО ВАЖНО, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ ДАЛЬШЕ. Дополнительно можно дать ДЕТАЛИ, СИГНАЛЫ, КОНТЕКСТ, если это реально нужно.
+- Секции обязаны покрывать: TL;DR, СУТЬ, КОНТУР, КАК УСТРОЕНО, ПРАКТИЧЕСКИЙ СМЫСЛ, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ ДАЛЬШЕ. Дополнительно можно дать ДЕТАЛИ, СИГНАЛЫ, КОНТЕКСТ, если это реально нужно.
 - left: 4–9 пунктов на секцию (строки без "- "). Делай плотные, проверяемые формулировки с отдельной ценностью в каждом пункте.
-- left: это основная левая колонка. Пиши по-русски, просто, предметно и без канцелярита. Английские слова не используй, если без них можно обойтись.
-- Английские термины, оригинальные названия, продуктовые ярлыки, исходные формулировки и jargon выноси в right.terms и right.commentary, а слева давай понятную русскую формулировку смысла.
-- right.commentary: 2–4 коротких абзаца с богатым форматированием: *курсив* для нюансов, **жирное** для решающих сигналов, [[term:...]] и [[entity:...]] для важных опор. Это не повтор left, а углубление: причинно-следственные связи, оговорки, эффекты второго порядка, рамка для решения.
+- left: это основная левая колонка. Пиши только по-русски, просто, предметно и без канцелярита. Не копируй английские фразы из исходника; переводи их в русский смысл. Английский допустим только для точных имён продуктов/людей/API/команд.
+- СУТЬ не должна быть произвольной цитатой из текста. Это 1–3 главных вывода: что за материал, какая центральная идея, какой практический смысл.
+- КОНТУР = состав материала и смысловые ветки, а не список случайных заголовков.
+- КАК УСТРОЕНО = механика/процесс/причины/ограничения, а не общая оценка.
+- ПРАКТИЧЕСКИЙ СМЫСЛ = почему пользователю стоит это учитывать и какое решение/действие меняется.
+- Английские термины, оригинальные названия, продуктовые ярлыки, исходные формулировки и jargon выноси в right.terms и right.commentary, но right.commentary тоже пиши на русском.
+- right.commentary: 2–4 коротких русских абзаца с богатым форматированием: *курсив* для нюансов, **жирное** для решающих сигналов, [[term:...]] и [[entity:...]] для важных опор. Это не повтор left, а углубление: причинно-следственные связи, оговорки, эффекты второго порядка, рамка для решения.
 - right.terms: 4–10. Именно сюда уводи англоязычные термины, оригинальные названия, сокращения и спорные формулировки. У каждого термина добавляй category и русскую definition, полезную именно для текущего материала.
 - right.entities: 4–8. У каждой сущности добавляй category: Люди, Организации, Проекты, Источники, Методы, Инструменты или Данные. exaQuery должен быть осмысленным поисковым запросом без правки.
 - right.refs: 2–5 проверок на секцию. Формулируй так, чтобы интерфейс мог отрисовать нумерованный список "Что проверить": факт/метрика/источник + зачем это проверять.
@@ -634,9 +640,16 @@ function areRightActionButtonsEnabled(settings = runtimeSettings) {
   return settings?.showRightActionButtons === true;
 }
 
+function isStalePromptOverride(key, value) {
+  const text = String(value || '').toUpperCase();
+  if (!text) return false;
+  if (!['summary', 'summaryJson', 'sectionEnrich'].includes(String(key || ''))) return false;
+  return text.includes('КАРТА') && text.includes('МЕХАНИЗМ') && (text.includes('ЗАЧЕМ ВАЖНО') || text.includes('ЗАЧЕМ ЭТО ВАЖНО'));
+}
+
 function getPromptOverride(key, settings = runtimeSettings) {
   const override = String(settings?.promptOverrides?.[key] || '').trim();
-  return override || PROMPTS[key] || '';
+  return (override && !isStalePromptOverride(key, override)) ? override : PROMPTS[key] || '';
 }
 
 function sendRuntimeMessage(action, payload = {}) {
@@ -4199,9 +4212,9 @@ function normalizeConcretePromptEntry(item) {
 const SUMMARY_SECTION_PRESETS = [
   { canonicalKey: 'tldr', emoji: '✳️', label: 'TL;DR', aliases: ['tldr', 'tl dr', 'tl;dr', 'главное', 'кратко', 'коротко'] },
   { canonicalKey: 'core', emoji: '📌', label: 'СУТЬ', aliases: ['core', 'summary', 'essence', 'суть', 'главная мысль'] },
-  { canonicalKey: 'toc', emoji: '🧭', label: 'КАРТА', aliases: ['toc', 'map', 'outline', 'карта', 'структура', 'содержание'] },
-  { canonicalKey: 'mechanics', emoji: '⚙️', label: 'МЕХАНИЗМЫ', aliases: ['mechanics', 'architecture', 'how it works', 'механика', 'механизмы', 'архитектура'] },
-  { canonicalKey: 'implications', emoji: '🧩', label: 'ЗАЧЕМ ЭТО ВАЖНО', aliases: ['implications', 'importance', 'why it matters', 'почему это важно', 'зачем это важно', 'последствия'] },
+  { canonicalKey: 'toc', emoji: '🧭', label: 'КОНТУР', aliases: ['toc', 'map', 'outline', 'карта', 'структура', 'содержание', 'контур', 'состав', 'смысловая карта'] },
+  { canonicalKey: 'mechanics', emoji: '⚙️', label: 'КАК УСТРОЕНО', aliases: ['mechanics', 'architecture', 'how it works', 'механика', 'механизмы', 'архитектура', 'как устроено', 'как работает', 'принцип работы'] },
+  { canonicalKey: 'implications', emoji: '🧩', label: 'ПРАКТИЧЕСКИЙ СМЫСЛ', aliases: ['implications', 'importance', 'why it matters', 'почему это важно', 'зачем это важно', 'последствия', 'практический смысл', 'значение', 'польза', 'решение'] },
   { canonicalKey: 'usage', emoji: '🛠', label: 'ПРИМЕНЕНИЕ', aliases: ['usage', 'applications', 'use cases', 'use-cases', 'применение', 'сценарии'] },
   { canonicalKey: 'automation', emoji: '🤖', label: 'АВТОМАТИЗАЦИИ', aliases: ['automation', 'automations', 'workflow', 'workflows', 'автоматизация', 'автоматизации'] },
   { canonicalKey: 'open', emoji: '❓', label: 'ОТКРЫТЫЕ ВОПРОСЫ', aliases: ['open questions', 'questions', 'unknowns', 'неясности', 'открытые вопросы', 'что неясно'] },
@@ -4773,7 +4786,7 @@ function renderSummarySceneBoard(summaryObj) {
         <div>
           <div class="pzdrk-scene-board-kicker">Рабочая доска</div>
           <div class="pzdrk-scene-board-title">Сводка в работу</div>
-          <div class="pzdrk-scene-board-subtitle">Карта темы, действия, запросы и проверки на первом экране.</div>
+          <div class="pzdrk-scene-board-subtitle">Суть, контур, механика, действия и проверки на первом экране.</div>
           <div class="pzdrk-scene-stat-strip">
             ${boardStats.map(item => `
               <span class="pzdrk-scene-stat">
@@ -4793,13 +4806,13 @@ function renderSummarySceneBoard(summaryObj) {
       <div class="pzdrk-scene-grid">
         <article class="pzdrk-scene-card pzdrk-scene-card-map" data-scene-card="map">
           <div class="pzdrk-scene-card-head">
-            <div class="pzdrk-scene-card-title">Карта темы</div>
+            <div class="pzdrk-scene-card-title">Ключевые блоки</div>
             <button class="pzdrk-scene-link" type="button" data-scene-action="mindmap">Развернуть</button>
           </div>
           <div class="pzdrk-scene-card-body">
             <div class="pzdrk-scene-cluster-strip">${clusterCards || '<div class="pzdrk-scene-empty">Секции появятся после сборки сводки.</div>'}</div>
             <div class="pzdrk-scene-mini-map">
-              ${renderSceneLines(collectSectionBulletsByKeys(summaryObj, ['tldr', 'core', 'mechanism'], 4), 'Сначала соберу TL;DR и механику.')}
+              ${renderSceneLines(collectSectionBulletsByKeys(summaryObj, ['tldr', 'core', 'toc', 'mechanics', 'implications'], 4), 'Сначала соберу суть, контур и механику.')}
             </div>
           </div>
         </article>
@@ -4830,7 +4843,7 @@ function renderSummarySceneBoard(summaryObj) {
         </article>
         <article class="pzdrk-scene-card" data-scene-card="usecases">
           <div class="pzdrk-scene-card-head">
-            <div class="pzdrk-scene-card-title">Применимость и сценарии (use cases)</div>
+            <div class="pzdrk-scene-card-title">Применимость и сценарии</div>
             <button class="pzdrk-scene-link" type="button" data-scene-action="compare">Сравнить</button>
           </div>
           <div class="pzdrk-scene-card-body">${renderSceneLines(useCases.length ? useCases : risks, 'Сценарии применения и ограничения появятся после раскладки секций.')}</div>
@@ -5469,7 +5482,9 @@ function buildMapReduceSummaryJson(params) {
       const prefix = (lvl === 1) ? '▸' : (lvl === 2) ? '▸▸' : '▸▸▸';
       return `${prefix} ${t}`;
     })
+    .filter(line => /[а-яё]/i.test(line))
     .filter(Boolean);
+  const contourFallback = bullets.slice(4, 12);
 
   const terms = Array.isArray(merged.terms) ? merged.terms : [];
   const entities = Array.isArray(merged.entities) ? merged.entities : [];
@@ -5500,21 +5515,21 @@ function buildMapReduceSummaryJson(params) {
       {
         key: 'toc',
         emoji: '🧭',
-        label: 'КАРТА',
-        left: toc.length ? toc : ['—'],
+        label: 'КОНТУР',
+        left: toc.length ? toc : contourFallback.length ? contourFallback : core,
         right: { commentary: [], terms: [], entities: [], refs: [] }
       },
       {
         key: 'mechanics',
         emoji: '⚙️',
-        label: 'МЕХАНИЗМЫ',
+        label: 'КАК УСТРОЕНО',
         left: mechanics.length ? mechanics : core,
         right: { commentary: [], terms: terms.slice(8, 14), entities: entities.slice(8, 14), refs: [] }
       },
       {
         key: 'implications',
         emoji: '🧩',
-        label: 'ЗАЧЕМ ЭТО ВАЖНО',
+        label: 'ПРАКТИЧЕСКИЙ СМЫСЛ',
         left: implications.length ? implications : mechanics.length ? mechanics.slice(0, 8) : core,
         right: { commentary: [], terms: terms.slice(14, 18), entities: entities.slice(14, 18), refs: [] }
       },
@@ -5557,7 +5572,7 @@ function buildMapReduceSummaryJson(params) {
         key: 'details',
         emoji: '🔎',
         label: 'ДЕТАЛИ',
-        left: details.length ? details : keyPoints,
+        left: details.length ? details : core,
         right: { commentary: [], terms: terms.slice(14, 18), entities: entities.slice(14, 18), refs: [] }
       }
     ],
@@ -5579,7 +5594,7 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
   const total = chunks.length;
   const results = new Array(total).fill(null);
 
-  const systemPrompt = `Верни ТОЛЬКО JSON (без Markdown и комментариев):\n\n{\n  \"bullets\": [\"...\"],\n  \"terms\": [{\"term\":\"...\",\"definition\":\"...\"}],\n  \"entities\": [{\"name\":\"...\",\"context\":\"...\",\"exaQuery\":\"...\"}],\n  \"actions\": [\"...\"],\n  \"risks\": [\"...\"]\n}\n\nТребования:\n- bullets: 6–10 строк, без префикса "- "\n- terms: 3–8\n- entities: 3–8\n- actions: 2–6\n- risks: 2–6`;
+  const systemPrompt = `Верни ТОЛЬКО JSON (без Markdown и комментариев):\n\n{\n  \"bullets\": [\"...\"],\n  \"terms\": [{\"term\":\"...\",\"definition\":\"...\"}],\n  \"entities\": [{\"name\":\"...\",\"context\":\"...\",\"exaQuery\":\"...\"}],\n  \"actions\": [\"...\"],\n  \"risks\": [\"...\"]\n}\n\nТребования:\n- Пиши по-русски во всех bullets/actions/risks/definitions/context.\n- Если chunk на английском, переводи смысл на русский, а не копируй исходные английские фразы.\n- Английский допустим только для точных названий продуктов, API, команд, URL и цитируемых терминов; рядом давай русское объяснение.\n- bullets: 6–10 строк, без префикса "- "; каждая строка должна быть проверяемым смысловым выводом, а не случайной цитатой.\n- terms: 3–8; term может сохранять оригинал, definition обязательно русская и прикладная.\n- entities: 3–8; context обязательно русский.\n- actions: 2–6; формулируй как конкретный следующий шаг.\n- risks: 2–6; формулируй как ограничение, пробел или проверку.`;
 
   let done = 0;
   let lastUi = 0;

@@ -8,7 +8,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const PROMPT_OPERATING_SYSTEM = `Режим: staff operator / research copilot.
 - Сначала восстанови цель пользователя, decision surface и рабочий контекст.
 - Разделяй: факт / inference / гипотеза / что проверить / next step.
-- Предпочитай layered output: executive signal -> mechanics -> risks -> actions.
+- Предпочитай layered output: сигнал -> как устроено -> риски -> действия.
+- Всегда пиши основной ответ по-русски. Если исходник на английском, переводи смысл, а не копируй английские фразы.
+- Английский допустим только для точных названий продуктов, API, команд, URL и цитируемых терминов; рядом давай русское объяснение.
 - Не пиши generic советы; давай сильные варианты, trade-offs, failure modes и checkpoints.
 - Если есть несколько путей, сравни их по скорости внедрения, риску и качеству результата.
 - Если данных не хватает, явно фиксируй пробелы и предлагай способ валидации вместо фантазий.
@@ -754,10 +756,10 @@ PAGE SNIPPET:
   const PROMPT_REGISTRY_DEFAULTS = {
     summary: `${PROMPT_OPERATING_SYSTEM}
 
-Сделай подробный operator-grade разбор страницы. Не пересказывай текст; собери карту смысла, рисков, механизмов и применения.
+Сделай подробный operator-grade разбор страницы. Не пересказывай текст; собери суть, контур, механику, практический смысл, риски и применение.
 
-Структура: TL;DR, СУТЬ, КАРТА, МЕХАНИЗМЫ, ЗАЧЕМ ВАЖНО, РИСКИ, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ, ДЕЙСТВИЯ.
-Пиши по-русски, проверяемо, с явной маркировкой гипотез и пробелов.
+Структура: TL;DR, СУТЬ, КОНТУР, КАК УСТРОЕНО, ПРАКТИЧЕСКИЙ СМЫСЛ, РИСКИ, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ, ДЕЙСТВИЯ.
+Пиши по-русски, проверяемо, с явной маркировкой гипотез и пробелов. Английский оставляй только для точных имён, API, команд и URL.
 
 ТЕГИ: {tags}
 КОНТЕКСТ: {browserContext}`,
@@ -766,7 +768,12 @@ PAGE SNIPPET:
 
 Верни только валидный JSON для двухколоночной summary: sections[], til[], actions[], concrete_prompts[].
 Каждая секция: key, emoji, label, left[], right.commentary[], right.terms[], right.entities[], right.refs[].
-Левая колонка — простой русский смысл; оригинальные термины и англицизмы — в right.
+Обязательные первые рабочие секции: TL;DR, СУТЬ, КОНТУР, КАК УСТРОЕНО, ПРАКТИЧЕСКИЙ СМЫСЛ.
+Левая колонка — простой русский смысл; оригинальные термины и англицизмы — в right. right.commentary тоже пиши по-русски.
+СУТЬ = 1-3 главных вывода, а не случайная цитата.
+КОНТУР = состав материала и смысловые ветки, а не сырой список заголовков.
+КАК УСТРОЕНО = процесс, причинно-следственные связи, ограничения и доказательная механика.
+ПРАКТИЧЕСКИЙ СМЫСЛ = что меняется для решения, продукта, исследования или следующего шага.
 
 ТЕГИ: {tags}
 КОНТЕКСТ: {browserContext}`,
@@ -774,7 +781,7 @@ PAGE SNIPPET:
     sectionEnrich: `${PROMPT_OPERATING_SYSTEM}
 
 Обогати одну секцию. Верни только JSON с right.commentary, right.terms, right.entities, right.refs.
-Не повторяй left; добавь связи, риски, проверки и практические нюансы.`,
+Не повторяй left; добавь связи, риски, проверки и практические нюансы. Все комментарии и определения пиши по-русски; английские исходные термины держи как term/name, но объясняй на русском.`,
 
     generateTitle: `Дай цепкий русский заголовок 2-5 слов. Только заголовок. Передай angle материала, не generic-кликбейт.
 Контент: {content}`,
@@ -880,9 +887,16 @@ PAGE SNIPPET: {content}`,
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function isStalePromptOverride(key, value) {
+    const text = String(value || '').toUpperCase();
+    if (!text) return false;
+    if (!['summary', 'summaryJson', 'sectionEnrich'].includes(String(key || ''))) return false;
+    return text.includes('КАРТА') && text.includes('МЕХАНИЗМ') && (text.includes('ЗАЧЕМ ВАЖНО') || text.includes('ЗАЧЕМ ЭТО ВАЖНО'));
+  }
+
   function getPromptRegistryValue(key) {
     const override = String(promptOverrides[key] || '');
-    return override || PROMPT_REGISTRY_DEFAULTS[key] || '';
+    return (override && !isStalePromptOverride(key, override)) ? override : PROMPT_REGISTRY_DEFAULTS[key] || '';
   }
 
   function renderPromptRegistry() {
