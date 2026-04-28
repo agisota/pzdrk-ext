@@ -60,7 +60,7 @@ function estimateTokens(text) {
 const CACHE_PREFIX = 'pzdrk_cache_v4_';
 const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TARGET_MAX_OUTPUT_TOKENS = 8192;
-const DEFAULT_MAX_PARALLEL_REQUESTS = 12;
+const DEFAULT_MAX_PARALLEL_REQUESTS = 64;
 const MAP_REDUCE_THRESHOLD_TOKENS = 4200;
 const DIRECT_SUMMARY_INPUT_CHARS = 6000;
 const SECTION_ENRICH_INPUT_CHARS = 4800;
@@ -1488,7 +1488,7 @@ async function translateLargeText(text, targetLang = 'ru', onProgress) {
   let rendered = '';
   let lastUi = 0;
 
-  const limit = getAdaptiveParallelLimit(settings, 6, 8);
+  const limit = getAdaptiveParallelLimit(settings, 64, 64);
 
   const maybeUpdate = () => {
     if (typeof onProgress !== 'function') return;
@@ -1931,6 +1931,21 @@ function formatRichText(text) {
   return html.join('<div class="pzdrk-par-spacer"></div>');
 }
 
+const NOTE_NAV_MAX_ITEMS = 6;
+
+function getNoteNavHeadings(root) {
+  if (!root) return [];
+  const seen = new Set();
+  return Array.from(root.querySelectorAll('.pzdrk-section-title')).filter((heading) => {
+    if (!heading.id) return false;
+    const label = String(heading.textContent || '').trim().toLowerCase();
+    const key = `${heading.id}::${label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function buildNoteNav(note) {
   if (!note || !note.isConnected) return;
   const nav = note.querySelector('.pzdrk-note-nav');
@@ -1940,11 +1955,15 @@ function buildNoteNav(note) {
   const activePane = getActiveNotePane(note);
   const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
   const root = summaryBody || activePane || contentEl;
-  const headings = Array.from(root.querySelectorAll('.pzdrk-section-title')).filter(h => h.id);
-  if (headings.length < 2) {
+  const allHeadings = getNoteNavHeadings(root);
+  if (allHeadings.length < 2) {
     nav.style.display = 'none';
     return;
   }
+  const headings = allHeadings.slice(0, NOTE_NAV_MAX_ITEMS);
+  const hiddenCount = Math.max(0, allHeadings.length - headings.length);
+  nav.dataset.count = String(headings.length);
+  nav.dataset.overflow = String(hiddenCount);
   nav.style.display = 'flex';
 
   nav.innerHTML = '';
@@ -1979,6 +1998,14 @@ function buildNoteNav(note) {
     nav.appendChild(btn);
   });
 
+  if (hiddenCount > 0) {
+    const more = document.createElement('div');
+    more.className = 'pzdrk-note-nav-more';
+    more.textContent = `+${hiddenCount}`;
+    more.title = `${hiddenCount} разделов скрыто в компактной навигации`;
+    nav.appendChild(more);
+  }
+
   // Bind once: keep active section highlighted
   if (note.dataset.navBound !== 'true') {
     note.dataset.navBound = 'true';
@@ -2004,7 +2031,7 @@ function updateNoteNavActive(note) {
   const activePane = getActiveNotePane(note);
   const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
   const root = summaryBody || activePane || contentEl;
-  const headings = Array.from(root.querySelectorAll('.pzdrk-section-title')).filter(h => h.id);
+  const headings = getNoteNavHeadings(root).slice(0, NOTE_NAV_MAX_ITEMS);
   const buttons = Array.from(nav.querySelectorAll('.pzdrk-note-nav-item'));
   if (!headings.length || !buttons.length) return;
 
@@ -2084,8 +2111,144 @@ function getNoteTabMeta(note, tabId = 'main') {
 
 function getWorkspaceTabIdForCommand(cmd) {
   const id = String(cmd?.id || cmd?.type || cmd?.title || 'tab').trim();
-  if (!id || id === 'summarize' || id === 'mindmap') return 'main';
+  if (!id || id === 'summarize') return 'main';
   return `cmd-${slugifyForId(id) || simpleHash32(id)}`;
+}
+
+const DIRECT_WORKSPACE_COMMAND_IDS = new Set([
+  'summarize',
+  'translate_page',
+  'mindmap',
+  'translate_selection',
+  'explain_selection'
+]);
+
+function isWorkspaceTabCommand(cmd) {
+  if (!cmd || !cmd.id) return false;
+  return DIRECT_WORKSPACE_COMMAND_IDS.has(cmd.id) || isActionFlyoutCommand(cmd);
+}
+
+const WORKSPACE_TAB_PREFETCH_DELAY_MS = 280;
+const WORKSPACE_TAB_PREFETCH_CONCURRENCY = 6;
+
+function getWorkspaceCommandStatus(cmd) {
+  const needsSelection = cmd?.scope === 'selection' && !getSelectionText();
+  return needsSelection ? 'blocked' : 'queued';
+}
+
+function getWorkspaceCommandMeta(cmd, status = 'queued') {
+  return {
+    title: String(cmd?.title || cmd?.id || 'Вкладка').trim(),
+    group: getCommandGroup(cmd),
+    kind: 'command',
+    cmdId: cmd?.id || '',
+    status
+  };
+}
+
+function renderWorkspaceCommandPlaceholder(cmd, status = 'queued') {
+  const title = String(cmd?.title || cmd?.id || 'Вкладка').trim();
+  if (status === 'blocked') {
+    return renderStateCard({
+      tone: 'muted',
+      icon: cmd?.icon || '?',
+      title,
+      body: 'Эта вкладка уже закреплена в рабочей панели. Выделите фрагмент на странице, чтобы наполнить ее содержанием.',
+      compact: true
+    });
+  }
+
+  return renderStateCard({
+    tone: 'waiting',
+    icon: cmd?.icon || '...',
+    title,
+    body: 'Вкладка создана вместе с рабочей страницей. Контент генерируется фоном, правая кнопка только переключает на эту вкладку.',
+    compact: true
+  });
+}
+
+function ensureWorkspaceCommandPlaceholders(note) {
+  if (!note || !note.isConnected || note.dataset.layout === 'flyout') return;
+  ensureNoteWorkspace(note);
+
+  getHintCommands()
+    .filter(isWorkspaceTabCommand)
+    .forEach((cmd) => {
+      if (!cmd || cmd.id === 'summarize') return;
+      const tabId = getWorkspaceTabIdForCommand(cmd);
+      const existingPane = note.querySelector(getNotePaneSelector(tabId));
+      const existingMeta = getNoteTabMeta(note, tabId);
+      let status = existingMeta?.status || getWorkspaceCommandStatus(cmd);
+      if (cmd.scope === 'selection' && status !== 'ready' && status !== 'loading') {
+        status = getWorkspaceCommandStatus(cmd);
+      }
+      const meta = getWorkspaceCommandMeta(cmd, status);
+
+      if (existingPane) {
+        if (existingMeta?.status !== status && status !== 'ready' && status !== 'loading') {
+          existingPane.innerHTML = renderWorkspaceCommandPlaceholder(cmd, status);
+        }
+        upsertNoteTabMeta(note, tabId, meta);
+        return;
+      }
+
+      setNoteTabContent(note, tabId, renderWorkspaceCommandPlaceholder(cmd, status), meta, {
+        activate: false,
+        scrollTop: false
+      });
+    });
+}
+
+function shouldPrefetchWorkspaceCommand(cmd) {
+  if (!isWorkspaceTabCommand(cmd)) return false;
+  if (cmd.id === 'summarize') return false;
+  if (cmd.scope === 'selection') return false;
+  return true;
+}
+
+function scheduleWorkspaceTabPrefetch(note) {
+  if (!note || !note.isConnected || note.dataset.layout === 'flyout') return;
+  ensureWorkspaceCommandPlaceholders(note);
+  if (note.dataset.workspacePrefetchStarted === 'true') return;
+  note.dataset.workspacePrefetchStarted = 'true';
+
+  window.setTimeout(() => {
+    prefetchWorkspaceTabs(note).catch(() => {
+      if (!note.isConnected) return;
+      note.dataset.workspacePrefetchFailed = 'true';
+      syncWorkspaceActionActive(note);
+    });
+  }, WORKSPACE_TAB_PREFETCH_DELAY_MS);
+}
+
+async function prefetchWorkspaceTabs(note) {
+  if (!note || !note.isConnected) return;
+  const commands = getHintCommands().filter(shouldPrefetchWorkspaceCommand);
+  if (!commands.length) {
+    note.dataset.workspacePrefetchStarted = 'false';
+    return;
+  }
+
+  const settings = runtimeSettings || await getSettings().catch(() => ({}));
+  const limit = getAdaptiveParallelLimit(
+    settings,
+    Math.min(WORKSPACE_TAB_PREFETCH_CONCURRENCY, commands.length),
+    WORKSPACE_TAB_PREFETCH_CONCURRENCY
+  );
+
+  await runWithConcurrency(commands, limit, async (cmd) => {
+    if (!note.isConnected) return;
+    const tabId = getWorkspaceTabIdForCommand(cmd);
+    const meta = getNoteTabMeta(note, tabId);
+    if (meta?.status === 'ready' || meta?.status === 'loading') return;
+    await openCommandInWorkspaceTab(cmd, note, null, { activate: false });
+  });
+
+  if (note.isConnected) {
+    note.dataset.workspacePrefetchDone = 'true';
+    renderFloatingHints(note);
+    syncWorkspaceActionActive(note);
+  }
 }
 
 function upsertNoteTabMeta(note, tabId, meta = {}) {
@@ -2126,6 +2289,7 @@ function getOrCreateNoteTabPane(note, tabId, meta = {}) {
 function syncWorkspaceActionActive(note) {
   if (!note || !note.isConnected) return;
   const activeId = note.__pzdrkActiveTabId || 'main';
+  renderWorkspaceTabStrip(note);
   note.querySelectorAll('.pzdrk-note-action[data-tab-id]').forEach(btn => {
     btn.classList.toggle('is-active', btn.dataset.tabId === activeId);
   });
@@ -2136,7 +2300,57 @@ function syncWorkspaceActionActive(note) {
     const meta = getNoteTabMeta(note, activeId);
     const label = pager.querySelector('.pzdrk-tab-pager-label');
     if (label) label.textContent = `${index + 1}/${Math.max(1, order.length)} • ${meta?.title || 'Вкладка'}`;
+    pager.dataset.count = String(order.length);
+    pager.querySelectorAll('.pzdrk-tab-round').forEach((btn) => {
+      btn.disabled = order.length <= 1;
+    });
   }
+}
+
+function renderWorkspaceTabStrip(note) {
+  if (!note || !note.isConnected || note.dataset.layout === 'flyout') return;
+  const strip = note.querySelector('.pzdrk-workspace-tabs');
+  if (!strip) return;
+
+  const order = getVisibleNoteTabOrder(note);
+  const activeId = note.__pzdrkActiveTabId || 'main';
+  strip.dataset.count = String(order.length);
+  strip.setAttribute('role', 'tablist');
+  strip.innerHTML = order.map((id) => {
+    const meta = getNoteTabMeta(note, id) || {};
+    const title = meta.title || (id === 'main' ? 'Главная' : 'Вкладка');
+    const group = meta.group || '';
+    const status = meta.status || 'ready';
+    const isActive = id === activeId;
+    const canClose = false;
+    return `
+      <div class="pzdrk-workspace-tab${isActive ? ' is-active' : ''}${status !== 'ready' ? ` is-${escapeAttr(status)}` : ''}" data-status="${escapeAttr(status)}">
+        <button class="pzdrk-workspace-tab-hit" type="button" role="tab" aria-selected="${isActive ? 'true' : 'false'}" aria-busy="${status === 'loading' ? 'true' : 'false'}" data-tab-id="${escapeAttr(id)}" title="${escapeAttr(title)}${group ? ` - ${escapeAttr(group)}` : ''}">
+          <span class="pzdrk-workspace-tab-label">${escapeHtml(title)}</span>
+          ${status === 'loading' || status === 'error' ? `<span class="pzdrk-workspace-tab-dot" aria-label="${status === 'loading' ? 'Загружается' : 'Ошибка'}"></span>` : ''}
+        </button>
+        ${canClose ? `<button class="pzdrk-workspace-tab-close" type="button" data-tab-close="${escapeAttr(id)}" title="Закрыть вкладку ${escapeAttr(title)}" aria-label="Закрыть вкладку ${escapeAttr(title)}">×</button>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  strip.querySelectorAll('.pzdrk-workspace-tab-hit[data-tab-id]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      activateNoteTab(note, btn.dataset.tabId || 'main');
+    });
+  });
+  strip.querySelectorAll('.pzdrk-workspace-tab-close[data-tab-close]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeNoteTab(note, btn.dataset.tabClose || '');
+    });
+  });
+
+  const activeTab = strip.querySelector('.pzdrk-workspace-tab.is-active');
+  activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 }
 
 function activateNoteTab(note, tabId = 'main', options = {}) {
@@ -2160,6 +2374,33 @@ function activateNoteTab(note, tabId = 'main', options = {}) {
   bindConcretePromptCards(note);
   syncWorkspaceActionActive(note);
   updateNoteActionsPlacement(note);
+}
+
+function closeNoteTab(note, tabId = '') {
+  if (!note || !note.isConnected) return false;
+  const id = String(tabId || '').trim();
+  if (!id || id === 'main') return false;
+
+  const order = getVisibleNoteTabOrder(note);
+  const index = order.indexOf(id);
+  const pane = note.querySelector(getNotePaneSelector(id));
+  if (!pane) return false;
+
+  pane.remove();
+  note.__pzdrkTabMeta?.delete(id);
+  if (Array.isArray(note.__pzdrkTabOrder)) {
+    note.__pzdrkTabOrder = note.__pzdrkTabOrder.filter(candidate => candidate !== id);
+  }
+
+  if ((note.__pzdrkActiveTabId || 'main') === id) {
+    const next = order[index + 1] || order[index - 1] || 'main';
+    activateNoteTab(note, next, { scrollTop: false });
+  } else {
+    syncWorkspaceActionActive(note);
+    updateNoteActionsPlacement(note);
+  }
+
+  return true;
 }
 
 function setNoteTabContent(note, tabId, html, meta = {}, options = {}) {
@@ -2229,44 +2470,6 @@ function findNoteTabByMention(note, mention = '') {
     ].map(v => String(v || '').toLowerCase()).filter(Boolean);
     return keys.includes(needle) || keys.some(k => k.startsWith(needle));
   }) || null;
-}
-
-function renderWorkspaceTabExtras(note, container) {
-  if (!note || !container) return;
-  const tabs = collectNoteTabs(note).filter(tab => {
-    const meta = getNoteTabMeta(note, tab.id) || {};
-    if (tab.id === 'main') return false;
-    if (meta.cmdId) return false;
-    return true;
-  });
-  if (!tabs.length) return;
-
-  const groupEl = document.createElement('div');
-  groupEl.className = 'pzdrk-note-actions-group';
-  groupEl.dataset.group = 'workspace';
-  groupEl.textContent = 'Ответы';
-  container.appendChild(groupEl);
-
-  tabs.forEach(tab => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'pzdrk-note-action pzdrk-note-action-tab';
-    btn.dataset.tabId = tab.id;
-    btn.dataset.group = 'workspace';
-    btn.innerHTML = `
-      <span class="pzdrk-note-action-icon">A</span>
-      <span class="pzdrk-note-action-main">
-        <span class="pzdrk-note-action-text">${escapeHtml(tab.title || 'Ответ')}</span>
-        <span class="pzdrk-note-action-hint">${escapeHtml(tab.group || 'Внутренний ответ')}</span>
-      </span>
-    `;
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      activateNoteTab(note, tab.id);
-    });
-    container.appendChild(btn);
-  });
 }
 
 function buildObsidianMarkdownBundle(note) {
@@ -2647,7 +2850,10 @@ function createNote(options = {}) {
           </div>
         </div>
       </div>
+      <div class="pzdrk-workspace-tabs" role="tablist" aria-label="Вкладки workspace"></div>
       <div class="pzdrk-note-content">${content}</div>
+    </div>
+    <div class="pzdrk-note-bottom-dock">
       <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
         <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
         <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
@@ -4945,7 +5151,7 @@ async function summarizeMapReduce({ note, pageContent, headings, contextText, se
   if (!note || !note.isConnected || !contentEl) throw new Error('Note missing');
 
   const maxOut = getTaskMaxTokens(settings, 1100, 256);
-  const limit = getAdaptiveParallelLimit(settings, 6, 8);
+  const limit = getAdaptiveParallelLimit(settings, 64, 64);
   const tilPromise = generateTILList(pageContent, contextText).catch(() => []);
 
   const chunks = chunkTextByTokens(pageContent, 1200, 80);
@@ -5045,9 +5251,7 @@ async function summarizePage() {
 	    bindConcretePromptCards(note);
 	    bindSummarySceneBoard(note, cachedJson);
 	    createFloatingHints(note);
-	    setTimeout(() => {
-	      if (note.isConnected) generateMindmap(note, { inline: true }).catch(() => { });
-	    }, 250);
+	    scheduleWorkspaceTabPrefetch(note);
 	    maybeAutoSpeakSummary(settings);
     isProcessing = false;
     showToast('⚡ Из кэша');
@@ -5221,10 +5425,8 @@ async function summarizePage() {
     // Store data for mindmap/challenge (searchResults filled later)
     lastSummaryData = { content: lastSummaryContent, headings, searchResults: [], ranking, pageContent, summaryJson };
 
-    // Build the map into the main tab after the summary is readable.
-    setTimeout(() => {
-      if (note.isConnected) generateMindmap(note, { inline: true }).catch(() => { });
-    }, 250);
+    // Build command tabs as part of the workspace instead of opening separate flyouts.
+    scheduleWorkspaceTabPrefetch(note);
 
     // Optional auto-speak (best effort; may be blocked by autoplay policy)
     maybeAutoSpeakSummary(settings);
@@ -5729,6 +5931,9 @@ async function refreshCommands() {
   );
 
   renderFloatingHints();
+  if (lastSummaryData?.content) {
+    getActionEnabledNotes().forEach(note => scheduleWorkspaceTabPrefetch(note));
+  }
   if (isCommandPaletteOpen()) renderCommandPaletteList();
 }
 
@@ -7857,7 +8062,7 @@ SUMMARY:
 {summary}`
 };
 
-// Back-compat name: this now attaches the action panel *inside* a note.
+// Back-compat name: this now attaches the action controller to a note workspace.
 function createFloatingHints(noteElement) {
   if (!noteElement || !noteElement.isConnected) return;
   ensureNoteWorkspace(noteElement);
@@ -7872,6 +8077,7 @@ function createFloatingHints(noteElement) {
     noteElement.appendChild(container);
   }
 
+  ensureWorkspaceCommandPlaceholders(noteElement);
   renderFloatingHints(noteElement);
   updateNoteActionsPlacement(noteElement);
 }
@@ -7934,18 +8140,43 @@ async function translatePageIntoWorkspaceTab(note, tabId, lang = 'ru') {
   return formatRichText(translated || '—');
 }
 
-async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
+async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null, options = {}) {
   if (!cmd || !sourceNote || !sourceNote.isConnected) return runCommand(cmd, { sourceNote });
   ensureNoteWorkspace(sourceNote);
+  const shouldActivate = options.activate !== false;
+  const forceRefresh = !!options.force || anchorEl?.classList?.contains('force-refresh');
 
   if (cmd.id === 'summarize') {
-    activateNoteTab(sourceNote, 'main');
+    if (shouldActivate) activateNoteTab(sourceNote, 'main');
     return;
   }
 
   if (cmd.id === 'mindmap') {
-    activateNoteTab(sourceNote, 'main', { scrollTop: false });
-    await generateMindmap(sourceNote, { inline: true });
+    const tabId = getWorkspaceTabIdForCommand(cmd);
+    const existingMeta = getNoteTabMeta(sourceNote, tabId);
+    const existingPane = sourceNote.querySelector(getNotePaneSelector(tabId));
+    if (existingPane && existingMeta?.status === 'loading' && !forceRefresh) {
+      if (shouldActivate) activateNoteTab(sourceNote, tabId);
+      return;
+    }
+    if (existingPane && existingMeta?.status === 'ready' && !forceRefresh) {
+      if (shouldActivate) activateNoteTab(sourceNote, tabId);
+      return;
+    }
+    setNoteTabContent(sourceNote, tabId, renderStateCard({
+      tone: 'waiting',
+      icon: '...',
+      title: 'Собираю карту',
+      body: 'Карта откроется как отдельная вкладка внутри текущей страницы.',
+      compact: true
+    }), {
+      title: 'Карта',
+      group: 'core',
+      kind: 'command',
+      cmdId: 'mindmap',
+      status: 'loading'
+    }, { activate: shouldActivate, scrollTop: shouldActivate });
+    await generateMindmap(sourceNote, { inline: true, inlineTabId: tabId, sourceTabId: 'main', activate: shouldActivate });
     return;
   }
 
@@ -7962,8 +8193,13 @@ async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
   const existingMeta = getNoteTabMeta(sourceNote, tabId);
   const existingPane = sourceNote.querySelector(getNotePaneSelector(tabId));
 
-  if (existingPane && existingMeta?.status === 'ready' && !anchorEl?.classList?.contains('force-refresh')) {
-    activateNoteTab(sourceNote, tabId);
+  if (existingPane && existingMeta?.status === 'loading' && !forceRefresh) {
+    if (shouldActivate) activateNoteTab(sourceNote, tabId);
+    return;
+  }
+
+  if (existingPane && existingMeta?.status === 'ready' && !forceRefresh) {
+    if (shouldActivate) activateNoteTab(sourceNote, tabId);
     return;
   }
 
@@ -7973,7 +8209,7 @@ async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
     title: `Генерирую вкладку "${title}"`,
     body: 'Команда выполняется внутри текущей страницы, без отдельного всплывающего окна.',
     compact: true
-  }), meta, { activate: true });
+  }), meta, { activate: shouldActivate, scrollTop: shouldActivate });
 
   try {
     const settings = runtimeSettings || await getSettings().catch(() => ({}));
@@ -7981,6 +8217,52 @@ async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
 
     if (cmd.id === 'translate_page') {
       html = await translatePageIntoWorkspaceTab(sourceNote, tabId, 'ru');
+    } else if (cmd.id === 'translate_selection') {
+      const selectionText = getSelectionText();
+      if (!selectionText) throw new Error('Нет выделения');
+      const renderProgress = (p) => {
+        const done = Number(p?.done || 0);
+        const total = Number(p?.total || 0);
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        const raw = String(p?.rendered || '');
+        const preview = raw.length > 18000 ? `${raw.slice(0, 18000)}\n\n...` : raw;
+        setNoteTabContent(sourceNote, tabId, `
+          <div class="pzdrk-tab-progress">
+            <div class="pzdrk-loading"><div class="pzdrk-spinner"></div>Перевожу выделение</div>
+            <div class="pzdrk-tab-progress-count">${done}/${total || '?'}${total ? ` • ${pct}%` : ''}</div>
+          </div>
+          <div class="pzdrk-prewrap">${escapeHtml(preview || '')}</div>
+        `, meta, { activate: false, scrollTop: false });
+      };
+      renderProgress({ done: 0, total: 0, rendered: '' });
+      const translated = await translateLargeText(selectionText, 'ru', renderProgress);
+      html = formatRichText(translated || '—');
+    } else if (cmd.id === 'explain_selection') {
+      const selectionText = getSelectionText();
+      if (!selectionText) throw new Error('Нет выделения');
+      const ctxText = formatBrowserContext(browserContext);
+      const userPrompt = `Объясни выделенный фрагмент максимально просто, но без упрощения до потери смысла.
+
+Формат:
+## Объяснение
+## Ключевые термины
+## Где путают
+## Что сделать дальше
+
+ВЫДЕЛЕНИЕ:
+${selectionText}
+
+PAGE:
+${window.location.href}
+${document.title}
+
+BROWSER CONTEXT:
+${ctxText}`;
+      const result = await callGroq(userPrompt, STYLE_RULES, {
+        temperature: 0.32,
+        max_tokens: getTaskMaxTokens(settings, 1600, 320)
+      });
+      html = formatRichText(result || '—');
     } else if (isActionFlyoutCommand(cmd)) {
       const cacheKey = getFlyoutCacheKey(cmd, sourceNote);
       const cached = flyoutPrefetchCache.get(cacheKey);
@@ -8008,12 +8290,12 @@ async function openCommandInWorkspaceTab(cmd, sourceNote, anchorEl = null) {
     setNoteTabContent(sourceNote, tabId, html, {
       ...meta,
       status: 'ready'
-    }, { activate: true });
+    }, { activate: shouldActivate, scrollTop: shouldActivate });
   } catch (e) {
     setNoteTabContent(sourceNote, tabId, `<div class="pzdrk-error">Ошибка команды: ${escapeHtml(e?.message || 'не удалось выполнить')}</div>`, {
       ...meta,
       status: 'error'
-    }, { activate: true });
+    }, { activate: shouldActivate, scrollTop: shouldActivate });
   } finally {
     renderFloatingHints(sourceNote);
     updateNoteActionsPlacement(sourceNote);
@@ -8027,6 +8309,7 @@ function renderFloatingHints(noteElement = null) {
 
   notes.forEach((note) => {
     if (!note || !note.isConnected) return;
+    ensureWorkspaceCommandPlaceholders(note);
     const container = note.querySelector('.pzdrk-note-actions');
     if (!container) return;
 
@@ -8068,23 +8351,35 @@ function renderFloatingHints(noteElement = null) {
       `;
       btn.title = `${cmd.title || cmd.id}${cmd.hint ? ` — ${cmd.hint}` : ''}${key ? ` (${key})` : ''}`;
 
-      const isFlyout = isActionFlyoutCommand(cmd);
-      btn.classList.toggle('is-workspace-tab', isFlyout || cmd.id === 'translate_page' || cmd.id === 'mindmap' || cmd.id === 'summarize');
+      btn.classList.toggle('is-workspace-tab', isWorkspaceTabCommand(cmd));
 
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (btn.disabled) return;
 
-        const keyEl = btn.querySelector('.pzdrk-note-action-key');
-        if (keyEl) keyEl.textContent = '...';
-        btn.disabled = true;
-        btn.classList.add('is-loading');
-
         try {
-          if (isFlyout || ['summarize', 'translate_page', 'mindmap'].includes(cmd.id)) {
-            await openCommandInWorkspaceTab(cmd, note, btn);
+          if (isWorkspaceTabCommand(cmd)) {
+            const tabId = getWorkspaceTabIdForCommand(cmd);
+            const meta = getNoteTabMeta(note, tabId);
+            const pane = note.querySelector(getNotePaneSelector(tabId));
+            const canFillSelectionTab = cmd.scope === 'selection' && hasSelection && meta?.status !== 'ready' && meta?.status !== 'loading';
+
+            if (pane && !canFillSelectionTab) {
+              activateNoteTab(note, tabId);
+              return;
+            }
+
+            const keyEl = btn.querySelector('.pzdrk-note-action-key');
+            if (keyEl) keyEl.textContent = '...';
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            await openCommandInWorkspaceTab(cmd, note, btn, { activate: true });
           } else {
+            const keyEl = btn.querySelector('.pzdrk-note-action-key');
+            if (keyEl) keyEl.textContent = '...';
+            btn.disabled = true;
+            btn.classList.add('is-loading');
             await runCommand(cmd, { sourceNote: note });
           }
         } finally {
@@ -8098,7 +8393,6 @@ function renderFloatingHints(noteElement = null) {
       btnById.set(cmd.id, btn);
     });
 
-    renderWorkspaceTabExtras(note, container);
     syncWorkspaceActionActive(note);
 
     updateNoteActionsPlacement(note);
@@ -8215,32 +8509,39 @@ async function executeAction(action, options = {}) {
 
 // ============ MINDMAP v2 (Deep Parallel) ============
 
-function ensureInlineMindmapTarget(note) {
+function ensureInlineMindmapTarget(note, tabId = 'main') {
   if (!note || !note.isConnected) return null;
   ensureNoteWorkspace(note);
-  const mainPane = getOrCreateNoteTabPane(note, 'main', {
-    title: 'Главная',
+  const targetTabId = String(tabId || 'main');
+  const isMainTab = targetTabId === 'main';
+  const pane = getOrCreateNoteTabPane(note, targetTabId, {
+    title: isMainTab ? 'Главная' : 'Карта',
     group: 'core',
-    kind: 'main',
-    cmdId: 'summarize',
-    status: 'ready'
+    kind: isMainTab ? 'main' : 'command',
+    cmdId: isMainTab ? 'summarize' : 'mindmap',
+    status: isMainTab ? 'ready' : 'loading'
   });
-  if (!mainPane) return null;
+  if (!pane) return null;
 
-  let section = mainPane.querySelector('[data-pzdrk-inline-mindmap]');
+  let section = pane.querySelector('[data-pzdrk-inline-mindmap]');
   if (!section) {
+    if (!isMainTab) pane.innerHTML = '';
     section = document.createElement('div');
     section.className = 'pzdrk-section pzdrk-inline-map-section';
     section.dataset.sec = 'workspace-map';
     section.setAttribute('data-pzdrk-inline-mindmap', 'true');
+    const titleId = isMainTab ? 'pzdrk-sec-workspace-map' : `pzdrk-sec-workspace-map-${slugifyForId(targetTabId) || simpleHash32(targetTabId)}`;
+    const intro = isMainTab
+      ? 'Кластерная карта этой страницы встроена в главную вкладку, чтобы не разносить смысл по отдельным окнам.'
+      : 'Кластерная карта открыта как вкладка этой страницы, без отдельного всплывающего окна.';
     section.innerHTML = `
-      <div class="pzdrk-section-title" id="pzdrk-sec-workspace-map">Карта</div>
-      <div class="pzdrk-section-intro">Кластерная карта этой страницы встроена в главную вкладку, чтобы не разносить смысл по отдельным окнам.</div>
+      <div class="pzdrk-section-title" id="${titleId}">Карта</div>
+      <div class="pzdrk-section-intro">${intro}</div>
       <div class="pzdrk-inline-map-body"></div>
     `;
-    const related = mainPane.querySelector('.pzdrk-related-section');
-    if (related?.parentElement === mainPane) mainPane.insertBefore(section, related);
-    else mainPane.appendChild(section);
+    const related = pane.querySelector('.pzdrk-related-section');
+    if (related?.parentElement === pane) pane.insertBefore(section, related);
+    else pane.appendChild(section);
   }
   return section.querySelector('.pzdrk-inline-map-body') || section;
 }
@@ -8248,7 +8549,12 @@ function ensureInlineMindmapTarget(note) {
 async function generateMindmap(sourceNote = null, options = {}) {
   const settings = runtimeSettings || await getSettings().catch(() => ({}));
   const rawPageContent = lastSummaryData?.pageContent || extractPageContent();
-  const sourceText = String(getActiveNotePane(sourceNote)?.innerText || sourceNote?.querySelector?.('.pzdrk-note-content')?.innerText || '').trim();
+  const inlineTabId = String(options.inlineTabId || options.tabId || 'main');
+  const sourceTabId = String(options.sourceTabId || (inlineTabId !== 'main' ? 'main' : '') || '');
+  const sourcePane = sourceTabId
+    ? sourceNote?.querySelector?.(getNotePaneSelector(sourceTabId))
+    : getActiveNotePane(sourceNote);
+  const sourceText = String(sourcePane?.innerText || sourceNote?.querySelector?.('.pzdrk-note-content')?.innerText || '').trim();
   const sourceTitle = String(sourceNote?.querySelector?.('.pzdrk-note-title')?.textContent || '').trim();
   const content = clipPromptInput(
     sourceText
@@ -8280,7 +8586,7 @@ async function generateMindmap(sourceNote = null, options = {}) {
   }
 
   try {
-    const contentEl = inlineMode ? ensureInlineMindmapTarget(note) : note.querySelector('.pzdrk-note-content');
+    const contentEl = inlineMode ? ensureInlineMindmapTarget(note, inlineTabId) : note.querySelector('.pzdrk-note-content');
     const setMindmapStage = (title, detail = '') => {
       if (!contentEl) return;
       contentEl.innerHTML = renderStateCard({
@@ -8614,10 +8920,14 @@ async function generateMindmap(sourceNote = null, options = {}) {
     contentEl.innerHTML = html;
     note.classList.remove('loading');
     if (inlineMode) {
-      upsertNoteTabMeta(note, 'main', { status: 'ready', updatedAt: Date.now() });
-      activateNoteTab(note, 'main', { scrollTop: false });
-      const section = note.querySelector('[data-pzdrk-inline-mindmap]');
-      section?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+      upsertNoteTabMeta(note, inlineTabId, { status: 'ready', updatedAt: Date.now() });
+      if (options.activate !== false) {
+        activateNoteTab(note, inlineTabId, { scrollTop: false });
+        const section = note.querySelector(`${getNotePaneSelector(inlineTabId)} [data-pzdrk-inline-mindmap]`) || note.querySelector('[data-pzdrk-inline-mindmap]');
+        section?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+      } else {
+        syncWorkspaceActionActive(note);
+      }
     }
     const titleEl = note.querySelector('.pzdrk-note-title');
     if (titleEl && !inlineMode) titleEl.textContent = String(data.title || 'Карта').slice(0, 60);
@@ -8791,8 +9101,9 @@ async function generateMindmap(sourceNote = null, options = {}) {
     createFloatingHints(note);
 
   } catch (error) {
-    const contentEl = inlineMode ? ensureInlineMindmapTarget(note) : note.querySelector('.pzdrk-note-content');
+    const contentEl = inlineMode ? ensureInlineMindmapTarget(note, inlineTabId) : note.querySelector('.pzdrk-note-content');
     if (contentEl) contentEl.innerHTML = `<div class="pzdrk-error">Ошибка карты: ${escapeHtml(error.message)}</div>`;
+    if (inlineMode) upsertNoteTabMeta(note, inlineTabId, { status: 'error', updatedAt: Date.now() });
     note.classList.remove('loading');
   }
 }

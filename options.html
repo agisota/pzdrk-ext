@@ -528,9 +528,9 @@
       <div class="section-title"><span class="icon">⚡</span> Performance</div>
       <div class="row">
         <div class="row-title">Max parallel requests</div>
-        <div class="row-subtitle">Сколько LLM запросов одновременно. Для <code>groq/compound</code> быстрый и обычно стабильный диапазон сейчас 6–8.</div>
-        <input type="text" id="maxParallelRequests" placeholder="12">
-        <p class="hint">Разгоняйте постепенно: сначала 6–8. Если видите 429 / TPM-limit / 413, опускайтесь до 4–6.</p>
+        <div class="row-subtitle">Сколько LLM запросов одновременно. Для быстрых провайдеров можно держать агрессивный режим до 64 lanes.</div>
+        <input type="text" id="maxParallelRequests" placeholder="64">
+        <p class="hint">Если видите 429 / TPM-limit / 413, снижайте до 16–32 или ниже под конкретный провайдер.</p>
       </div>
       <div class="row">
         <div class="row-title">Target max output tokens</div>

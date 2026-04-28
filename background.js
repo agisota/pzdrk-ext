@@ -492,7 +492,7 @@ async function handleGroqBatchCall(items, systemPrompt, options = {}) {
   const max_tokens = Number.isFinite(Number(maxTokRaw)) ? Math.max(1, Math.min(MAX_OUTPUT_TOKENS, Number(maxTokRaw))) : DEFAULT_BATCH_MAX_TOKENS;
 
   const maxParallelRaw = Number(settings.maxParallelRequests);
-  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 12;
+  const maxParallel = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : 64;
 
   const results = [];
   let cursor = 0;
