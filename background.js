@@ -15,6 +15,8 @@ const GENERIC_REQUEST_COOLDOWN_MS = 20_000;
 const AUTH_KEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const BROKEN_KEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MAX_KEY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const ARTIFACT_STORE_KEY = 'pzdrkSavedArtifacts';
+const ARTIFACT_STORE_LIMIT = 80;
 
 // LLM Providers
 const GROQ_CHAT_COMPLETIONS_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -80,6 +82,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     'xaiRealtimeClientSecret': () => handleXaiRealtimeClientSecret(request.ttlSeconds),
     'fetchUrlMeta': () => handleFetchUrlMeta(request.url),
     'sendSlack': () => handleSlackSend(request.data),
+    'saveArtifact': () => handleSaveArtifact(request.artifact),
+    'listArtifacts': () => handleListArtifacts(),
+    'getArtifact': () => handleGetArtifact(request.id),
+    'deleteArtifact': () => handleDeleteArtifact(request.id),
+    'captureVisibleTab': () => handleCaptureVisibleTab(sender),
+    'sendTelegramArtifact': () => handleTelegramArtifact(request.artifact),
+    'testTelegram': () => handleTelegramTest(request.message),
     'getBrowserContext': () => handleGetBrowserContext({ days: request.days, hours: request.hours }),
     'getTrackerStats': () => Promise.resolve({ blocked: trackerStats.blocked, domains: Array.from(trackerStats.domains).slice(0, 20) }),
     'resetTrackerStats': () => { trackerStats = { blocked: 0, domains: new Set() }; return Promise.resolve(true); }
@@ -93,6 +102,216 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+
+// ============ LOCAL ARTIFACTS / EXPORTS ============
+
+function clipStorageString(value, maxLen = 180000) {
+  const str = String(value || '');
+  if (str.length <= maxLen) return str;
+  return `${str.slice(0, maxLen)}\n\n<!-- clipped by pzdrk artifact store: ${str.length - maxLen} chars omitted -->`;
+}
+
+function normalizeArtifactForStorage(artifact) {
+  const now = Date.now();
+  const input = (artifact && typeof artifact === 'object') ? artifact : {};
+  const id = String(input.id || `artifact-${now}`).trim();
+  const tabs = Array.isArray(input.tabs) ? input.tabs.slice(0, 48).map((tab, index) => ({
+    id: String(tab?.id || `tab-${index + 1}`),
+    title: String(tab?.title || `Вкладка ${index + 1}`).slice(0, 140),
+    group: String(tab?.group || '').slice(0, 80),
+    kind: String(tab?.kind || '').slice(0, 60),
+    status: String(tab?.status || 'ready').slice(0, 40),
+    text: clipStorageString(tab?.text || '', 90000),
+    html: clipStorageString(tab?.html || '', 140000)
+  })) : [];
+
+  return {
+    id,
+    url: String(input.url || ''),
+    canonicalUrl: String(input.canonicalUrl || input.url || ''),
+    title: String(input.title || 'pzdrk artifact').slice(0, 180),
+    domain: String(input.domain || ''),
+    createdAt: Number(input.createdAt || now),
+    updatedAt: now,
+    contentHash: String(input.contentHash || ''),
+    activeTabId: String(input.activeTabId || 'main'),
+    tabs,
+    markdown: clipStorageString(input.markdown || '', 220000),
+    html: clipStorageString(input.html || '', 260000),
+    text: clipStorageString(input.text || '', 160000),
+    settingsSnapshot: (input.settingsSnapshot && typeof input.settingsSnapshot === 'object') ? input.settingsSnapshot : {}
+  };
+}
+
+function getArtifactMeta(artifact) {
+  return {
+    id: artifact.id,
+    url: artifact.url,
+    title: artifact.title,
+    domain: artifact.domain,
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    contentHash: artifact.contentHash,
+    activeTabId: artifact.activeTabId,
+    tabCount: Array.isArray(artifact.tabs) ? artifact.tabs.length : 0,
+    htmlBytes: new Blob([artifact.html || '']).size,
+    markdownBytes: new Blob([artifact.markdown || '']).size
+  };
+}
+
+async function readArtifacts() {
+  const stored = await chrome.storage.local.get([ARTIFACT_STORE_KEY]);
+  return Array.isArray(stored[ARTIFACT_STORE_KEY]) ? stored[ARTIFACT_STORE_KEY] : [];
+}
+
+async function writeArtifacts(artifacts) {
+  await chrome.storage.local.set({ [ARTIFACT_STORE_KEY]: artifacts });
+}
+
+async function handleSaveArtifact(artifact) {
+  const normalized = normalizeArtifactForStorage(artifact);
+  const existing = await readArtifacts();
+  const duplicateKey = normalized.contentHash || normalized.id;
+  const next = [
+    normalized,
+    ...existing.filter(item => {
+      const key = item?.contentHash || item?.id;
+      return key !== duplicateKey && item?.id !== normalized.id;
+    })
+  ].slice(0, ARTIFACT_STORE_LIMIT);
+  await writeArtifacts(next);
+  return { artifact: getArtifactMeta(normalized), count: next.length };
+}
+
+async function handleListArtifacts() {
+  const artifacts = await readArtifacts();
+  return artifacts
+    .slice()
+    .sort((a, b) => Number(b?.updatedAt || b?.createdAt || 0) - Number(a?.updatedAt || a?.createdAt || 0))
+    .map(getArtifactMeta);
+}
+
+async function handleGetArtifact(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) throw new Error('Missing artifact id');
+  const artifacts = await readArtifacts();
+  const artifact = artifacts.find(item => String(item?.id || '') === targetId);
+  if (!artifact) throw new Error('Artifact not found');
+  return artifact;
+}
+
+async function handleDeleteArtifact(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) throw new Error('Missing artifact id');
+  const artifacts = await readArtifacts();
+  const next = artifacts.filter(item => String(item?.id || '') !== targetId);
+  await writeArtifacts(next);
+  return { deleted: artifacts.length - next.length, count: next.length };
+}
+
+async function handleCaptureVisibleTab(sender) {
+  const windowId = sender?.tab?.windowId;
+  if (!Number.isFinite(windowId)) throw new Error('No active tab window for capture');
+  return chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+}
+
+// ============ TELEGRAM DELIVERY ============
+
+function getTelegramApiBase(token) {
+  const clean = String(token || '').trim();
+  if (!clean) throw new Error('Telegram bot token is empty');
+  return `https://api.telegram.org/bot${clean}`;
+}
+
+function clipTelegramCaption(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+}
+
+async function getTelegramSettings() {
+  const settings = await chrome.storage.local.get([
+    'telegramEnabled',
+    'telegramBotToken',
+    'telegramChatId',
+    'telegramSendHtml',
+    'telegramSendMarkdown'
+  ]);
+  const enabled = settings.telegramEnabled === true;
+  const botToken = String(settings.telegramBotToken || '').trim();
+  const chatId = String(settings.telegramChatId || '').trim();
+  if (!enabled) throw new Error('Telegram выключен в настройках');
+  if (!botToken || !chatId) throw new Error('Укажите Telegram bot token и chat id в настройках');
+  return {
+    botToken,
+    chatId,
+    sendHtml: settings.telegramSendHtml !== false,
+    sendMarkdown: settings.telegramSendMarkdown === true
+  };
+}
+
+async function sendTelegramMessage(botToken, chatId, text) {
+  const response = await fetchWithTimeout(`${getTelegramApiBase(botToken)}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: String(text || '').slice(0, 3900),
+      disable_web_page_preview: true
+    })
+  }, 20000);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data?.description || `Telegram sendMessage failed: ${response.status}`);
+  }
+  return data;
+}
+
+async function sendTelegramDocument(botToken, chatId, filename, mimeType, content, caption) {
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  if (caption) form.append('caption', clipTelegramCaption(caption));
+  form.append('document', new Blob([String(content || '')], { type: mimeType }), filename);
+
+  const response = await fetchWithTimeout(`${getTelegramApiBase(botToken)}/sendDocument`, {
+    method: 'POST',
+    body: form
+  }, 30000);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data?.description || `Telegram sendDocument failed: ${response.status}`);
+  }
+  return data;
+}
+
+async function handleTelegramArtifact(artifact) {
+  const settings = await getTelegramSettings();
+  const normalized = normalizeArtifactForStorage(artifact);
+  const safeTitle = String(normalized.title || 'pzdrk').replace(/[^\wа-яА-ЯёЁ.-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'pzdrk';
+  const caption = `${normalized.title}\n${normalized.url}`;
+  const sent = [];
+
+  if (settings.sendHtml && normalized.html) {
+    await sendTelegramDocument(settings.botToken, settings.chatId, `${safeTitle}.html`, 'text/html;charset=utf-8', normalized.html, caption);
+    sent.push('html');
+  }
+
+  if (settings.sendMarkdown && normalized.markdown) {
+    await sendTelegramDocument(settings.botToken, settings.chatId, `${safeTitle}.md`, 'text/markdown;charset=utf-8', normalized.markdown, caption);
+    sent.push('markdown');
+  }
+
+  if (!sent.length) {
+    await sendTelegramMessage(settings.botToken, settings.chatId, `${normalized.title}\n${normalized.url}\n\n${String(normalized.text || '').slice(0, 2400)}`);
+    sent.push('message');
+  }
+
+  return { sent, title: normalized.title };
+}
+
+async function handleTelegramTest(message) {
+  const settings = await getTelegramSettings();
+  await sendTelegramMessage(settings.botToken, settings.chatId, message || 'pzdrk: Telegram delivery connected.');
+  return { ok: true };
+}
 
 // ============ XAI REALTIME (EPHEMERAL TOKEN) ============
 
@@ -195,8 +414,12 @@ function applyLocalOverrides(settings, overrides) {
     if (Number.isFinite(value)) next[key] = value;
   }
 
-  for (const key of ['byokMode', 'prefetchOnHover', 'mapReduceEnabled', 'twoColumnSummary']) {
+  for (const key of ['byokMode', 'prefetchOnHover', 'mapReduceEnabled', 'twoColumnSummary', 'showLeftNavButtons', 'showRightActionButtons', 'artifactAutoSave']) {
     if (typeof overrides[key] === 'boolean') next[key] = overrides[key];
+  }
+
+  if (overrides.promptOverrides && typeof overrides.promptOverrides === 'object') {
+    next.promptOverrides = overrides.promptOverrides;
   }
 
   if (groqApiKeys.length || cerebrasApiKeys.length) {

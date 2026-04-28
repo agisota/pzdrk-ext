@@ -13,7 +13,8 @@
     "declarativeNetRequestFeedback",
     "webRequest",
     "scripting",
-    "alarms"
+    "alarms",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "<all_urls>"

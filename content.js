@@ -578,8 +578,16 @@ async function getSettings() {
     'twoColumnSummary', 'summaryJsonPrompt', 'sectionEnrichPrompt',
     'maxParallelRequests', 'targetMaxOutputTokens',
     'prefetchOnHover', 'prefetchDelayMs',
-    'mapReduceEnabled'
+    'mapReduceEnabled',
+    'showLeftNavButtons', 'showRightActionButtons',
+    'artifactAutoSave',
+    'promptOverrides'
   ]);
+  const localSettings = await chrome.storage.local.get([
+    'telegramEnabled',
+    'telegramSendHtml',
+    'telegramSendMarkdown'
+  ]).catch(() => ({}));
 
   const maxParallelRaw = Number(settings.maxParallelRequests);
   const maxParallelRequests = Number.isFinite(maxParallelRaw) ? Math.max(1, Math.min(200, Math.round(maxParallelRaw))) : DEFAULT_MAX_PARALLEL_REQUESTS;
@@ -607,8 +615,41 @@ async function getSettings() {
     targetMaxOutputTokens,
     prefetchOnHover: settings.prefetchOnHover !== false,
     prefetchDelayMs,
-    mapReduceEnabled: settings.mapReduceEnabled !== false
+    mapReduceEnabled: settings.mapReduceEnabled !== false,
+    showLeftNavButtons: settings.showLeftNavButtons === true,
+    showRightActionButtons: settings.showRightActionButtons === true,
+    artifactAutoSave: settings.artifactAutoSave === true,
+    promptOverrides: (settings.promptOverrides && typeof settings.promptOverrides === 'object') ? settings.promptOverrides : {},
+    telegramEnabled: localSettings.telegramEnabled === true,
+    telegramSendHtml: localSettings.telegramSendHtml !== false,
+    telegramSendMarkdown: localSettings.telegramSendMarkdown === true
   };
+}
+
+function areLeftNavButtonsEnabled(settings = runtimeSettings) {
+  return settings?.showLeftNavButtons === true;
+}
+
+function areRightActionButtonsEnabled(settings = runtimeSettings) {
+  return settings?.showRightActionButtons === true;
+}
+
+function getPromptOverride(key, settings = runtimeSettings) {
+  const override = String(settings?.promptOverrides?.[key] || '').trim();
+  return override || PROMPTS[key] || '';
+}
+
+function sendRuntimeMessage(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action, ...payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (response?.success) resolve(response.data);
+      else reject(new Error(response?.error || `${action} failed`));
+    });
+  });
 }
 
 async function callGroq(prompt, systemPrompt, options = {}) {
@@ -1285,7 +1326,7 @@ async function startVoiceRecording() {
         `SUMMARY:\n${summaryText}`
       ].join('\n');
 
-      const prompt = PROMPTS.followUp
+      const prompt = getPromptOverride('followUp')
         .replace('{history}', historyText)
         .replace('{question}', transcript);
 
@@ -1797,7 +1838,7 @@ function renderRichTable(lines) {
   const variant = detectRichTableVariant(headerRow);
 
   const normalizeRow = (row) => Array.from({ length: colCount }, (_, index) => row[index] || '');
-  const renderHeaderCell = (cell, index) => `<th class="${index === 0 ? 'is-key-col' : ''}">${formatRichInline(cell) || '&nbsp;'}</th>`;
+  const renderHeaderCell = (cell, index) => `<th class="${index === 0 ? 'is-key-col' : ''}" data-col="${index + 1}">${formatRichInline(cell) || '&nbsp;'}</th>`;
   const renderBodyCell = (cell, index) => `<td class="${index === 0 ? 'is-key-col' : ''}" data-col="${index + 1}">${formatRichInline(cell) || '&nbsp;'}</td>`;
 
   const thead = `<thead><tr>${normalizeRow(headerRow).map(renderHeaderCell).join('')}</tr></thead>`;
@@ -1951,6 +1992,13 @@ function buildNoteNav(note) {
   const nav = note.querySelector('.pzdrk-note-nav');
   const contentEl = note.querySelector('.pzdrk-note-content');
   if (!nav || !contentEl) return;
+  const navEnabled = areLeftNavButtonsEnabled();
+  note.dataset.navEnabled = navEnabled ? 'true' : 'false';
+  if (!navEnabled) {
+    nav.innerHTML = '';
+    nav.style.display = 'none';
+    return;
+  }
 
   const activePane = getActiveNotePane(note);
   const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
@@ -2027,6 +2075,10 @@ function updateNoteNavActive(note) {
   const nav = note.querySelector('.pzdrk-note-nav');
   const contentEl = note.querySelector('.pzdrk-note-content');
   if (!nav || !contentEl) return;
+  if (!areLeftNavButtonsEnabled()) {
+    nav.style.display = 'none';
+    return;
+  }
 
   const activePane = getActiveNotePane(note);
   const summaryBody = activePane?.querySelector?.('.pzdrk-summary-body') || note.querySelector('.pzdrk-summary-body');
@@ -2129,7 +2181,7 @@ function isWorkspaceTabCommand(cmd) {
 }
 
 const WORKSPACE_TAB_PREFETCH_DELAY_MS = 280;
-const WORKSPACE_TAB_PREFETCH_CONCURRENCY = 6;
+const WORKSPACE_TAB_PREFETCH_CONCURRENCY = 64;
 
 function getWorkspaceCommandStatus(cmd) {
   const needsSelection = cmd?.scope === 'selection' && !getSelectionText();
@@ -2226,6 +2278,7 @@ async function prefetchWorkspaceTabs(note) {
   const commands = getHintCommands().filter(shouldPrefetchWorkspaceCommand);
   if (!commands.length) {
     note.dataset.workspacePrefetchStarted = 'false';
+    autoSaveWorkspaceArtifact(note).catch(() => { });
     return;
   }
 
@@ -2248,6 +2301,7 @@ async function prefetchWorkspaceTabs(note) {
     note.dataset.workspacePrefetchDone = 'true';
     renderFloatingHints(note);
     syncWorkspaceActionActive(note);
+    autoSaveWorkspaceArtifact(note).catch(() => { });
   }
 }
 
@@ -2456,6 +2510,316 @@ function collectNoteTabs(note) {
   });
 }
 
+function clipArtifactValue(value, maxLen = 120000) {
+  const str = String(value || '');
+  if (str.length <= maxLen) return str;
+  return `${str.slice(0, maxLen)}\n\n<!-- pzdrk export clipped ${str.length - maxLen} chars -->`;
+}
+
+function getArtifactBaseTitle(note) {
+  return String(note?.querySelector?.('.pzdrk-note-title')?.textContent || document.title || 'pzdrk').trim() || 'pzdrk';
+}
+
+function getArtifactFileSlug(note) {
+  return slugifyForId(getArtifactBaseTitle(note)) || `pzdrk-${Date.now()}`;
+}
+
+function getPzdrkExportCss() {
+  return `
+    :root {
+      color-scheme: dark;
+      --bg: #07131f;
+      --panel: rgba(12, 25, 38, 0.92);
+      --panel-2: rgba(18, 35, 50, 0.86);
+      --text: #edf7ff;
+      --muted: rgba(237,247,255,0.68);
+      --accent: #7dd3fc;
+      --accent-2: #bef264;
+      --border: rgba(125,211,252,0.18);
+      --mono: "SF Mono", "IBM Plex Mono", ui-monospace, monospace;
+      font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(125,211,252,0.16), transparent 28%),
+        radial-gradient(circle at 92% 6%, rgba(190,242,100,0.12), transparent 24%),
+        linear-gradient(145deg, #06101a, #0b1a26 48%, #102434);
+      font-size: 14px;
+      line-height: 1.52;
+    }
+    .pzdrk-export-shell { width: min(1200px, calc(100vw - 32px)); margin: 24px auto 48px; }
+    .pzdrk-export-header {
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)), var(--panel);
+      box-shadow: 0 24px 70px rgba(0,0,0,0.32);
+    }
+    .pzdrk-export-kicker { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 8px 0 10px; font-size: 30px; line-height: 1.1; letter-spacing: 0; }
+    .pzdrk-export-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
+    .pzdrk-export-meta span, .pzdrk-export-nav a {
+      display: inline-flex; align-items: center; min-height: 28px; padding: 6px 10px; border-radius: 999px;
+      background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.07);
+    }
+    .pzdrk-export-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 18px; }
+    .pzdrk-export-nav a { color: var(--text); text-decoration: none; font-weight: 700; }
+    .pzdrk-export-tab {
+      margin-top: 14px;
+      padding: 20px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018)), var(--panel);
+      box-shadow: 0 18px 52px rgba(0,0,0,0.22);
+      page-break-inside: avoid;
+    }
+    .pzdrk-export-tab h2 { margin: 0 0 12px; font-size: 20px; line-height: 1.2; letter-spacing: 0; }
+    .pzdrk-export-tab-meta { margin-bottom: 12px; color: var(--muted); font-size: 11px; }
+    h1, h2, h3, h4 { color: #fff; }
+    a { color: var(--accent); }
+    code, pre { font-family: var(--mono); }
+    pre, .pzdrk-prewrap {
+      white-space: pre-wrap;
+      overflow-x: auto;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(2, 10, 18, 0.55);
+      border: 1px solid rgba(125,211,252,0.12);
+    }
+    .pzdrk-state-card, .pzdrk-card, .pzdrk-action-card, .pzdrk-prompt-card,
+    .pzdrk-section, .pzdrk-two-col, .pzdrk-two-col-left, .pzdrk-two-col-right {
+      border-radius: 14px;
+      border: 1px solid rgba(125,211,252,0.14);
+      background: rgba(255,255,255,0.045);
+      padding: 12px;
+      margin: 8px 0;
+    }
+    .pzdrk-rich-table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); background: rgba(8,18,30,0.52); margin: 10px 0; }
+    .pzdrk-rich-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.42; table-layout: auto; }
+    .pzdrk-rich-table th, .pzdrk-rich-table td { padding: 8px 9px; border-bottom: 1px solid rgba(125,211,252,0.12); vertical-align: top; }
+    .pzdrk-rich-table th { white-space: nowrap; color: #fff; background: rgba(125,211,252,0.12); }
+    .pzdrk-rich-table th:first-child, .pzdrk-rich-table td:first-child { width: 1%; min-width: 54px; white-space: nowrap; text-align: center; }
+    .pzdrk-term, .pzdrk-evidence { color: var(--accent-2); font-weight: 700; }
+    @media print {
+      body { background: #0b1622; }
+      .pzdrk-export-shell { width: 100%; margin: 0; }
+      .pzdrk-export-nav { display: none; }
+      .pzdrk-export-tab { break-inside: avoid; box-shadow: none; }
+    }
+  `;
+}
+
+function buildWorkspaceMarkdown(note, tabs = collectNoteTabs(note)) {
+  const now = new Date();
+  const title = getArtifactBaseTitle(note);
+  const lines = [
+    `# ${title}`,
+    '',
+    `URL: ${window.location.href}`,
+    `Saved: ${now.toISOString()}`,
+    `Tabs: ${tabs.length}`,
+    '',
+    '## Tabs',
+    ...tabs.map((tab, index) => `- ${index + 1}. ${tab.title || tab.id} (${tab.group || 'core'})`),
+    ''
+  ];
+
+  tabs.forEach((tab, index) => {
+    lines.push(`## ${index + 1}. ${tab.title || tab.id}`);
+    if (tab.group) lines.push(`Group: ${tab.group}`);
+    lines.push('', tab.text || '_Пусто_', '');
+  });
+
+  return lines.join('\n');
+}
+
+function buildWorkspaceExportHtml(note, artifact = null) {
+  const tabs = artifact?.tabs || collectNoteTabs(note);
+  const title = artifact?.title || getArtifactBaseTitle(note);
+  const savedAt = new Date(artifact?.createdAt || Date.now()).toISOString();
+  const url = artifact?.url || window.location.href;
+  let sourceHost = 'source';
+  try {
+    sourceHost = new URL(url).hostname || 'source';
+  } catch (e) {
+    sourceHost = 'source';
+  }
+  const activeTabId = artifact?.activeTabId || note?.__pzdrkActiveTabId || 'main';
+  const nav = tabs.map((tab, index) => (
+    `<a href="#tab-${escapeAttr(tab.id || index)}">${escapeHtml(index + 1)}. ${escapeHtml(tab.title || tab.id || `Вкладка ${index + 1}`)}</a>`
+  )).join('');
+  const body = tabs.map((tab, index) => `
+    <section class="pzdrk-export-tab${tab.id === activeTabId ? ' is-active' : ''}" id="tab-${escapeAttr(tab.id || index)}">
+      <h2>${escapeHtml(index + 1)}. ${escapeHtml(tab.title || tab.id || `Вкладка ${index + 1}`)}</h2>
+      <div class="pzdrk-export-tab-meta">${escapeHtml(tab.group || 'core')} ${tab.kind ? `• ${escapeHtml(tab.kind)}` : ''}</div>
+      <div class="pzdrk-export-tab-body">${clipArtifactValue(tab.html || escapeHtml(tab.text || ''), 140000)}</div>
+    </section>
+  `).join('');
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)} - pzdrk export</title>
+  <style>${getPzdrkExportCss()}</style>
+</head>
+<body>
+  <main class="pzdrk-export-shell">
+    <header class="pzdrk-export-header">
+      <div class="pzdrk-export-kicker">pzdrk rendered workspace export</div>
+      <h1>${escapeHtml(title)}</h1>
+      <div class="pzdrk-export-meta">
+        <span>${escapeHtml(sourceHost)}</span>
+        <span>${escapeHtml(savedAt)}</span>
+        <span>${tabs.length} tabs</span>
+      </div>
+      <div class="pzdrk-export-meta" style="margin-top:8px;"><span>${escapeHtml(url)}</span></div>
+    </header>
+    <nav class="pzdrk-export-nav">${nav}</nav>
+    ${body}
+  </main>
+</body>
+</html>`;
+}
+
+function collectWorkspaceArtifact(note) {
+  const tabs = collectNoteTabs(note).map(tab => ({
+    id: tab.id,
+    title: tab.title,
+    group: tab.group,
+    kind: tab.kind,
+    status: getNoteTabMeta(note, tab.id)?.status || 'ready',
+    text: clipArtifactValue(tab.text || '', 90000),
+    html: clipArtifactValue(tab.html || '', 140000)
+  }));
+  const title = getArtifactBaseTitle(note);
+  const text = tabs.map(tab => `## ${tab.title}\n${tab.text || ''}`).join('\n\n');
+  const contentHash = simpleHash32(`${window.location.href}\n${title}\n${text}`);
+  const createdAt = Date.now();
+  const base = {
+    id: `artifact-${createdAt}-${contentHash}`,
+    url: window.location.href,
+    canonicalUrl: document.querySelector('link[rel="canonical"]')?.href || window.location.href,
+    title,
+    domain: location.hostname,
+    createdAt,
+    updatedAt: createdAt,
+      contentHash,
+      activeTabId: note?.__pzdrkActiveTabId || 'main',
+      tabs,
+    markdown: '',
+    html: '',
+    text: clipArtifactValue(text, 160000),
+    settingsSnapshot: {
+      maxParallelRequests: runtimeSettings?.maxParallelRequests || DEFAULT_MAX_PARALLEL_REQUESTS,
+      artifactAutoSave: runtimeSettings?.artifactAutoSave === true,
+      showLeftNavButtons: runtimeSettings?.showLeftNavButtons === true,
+      showRightActionButtons: runtimeSettings?.showRightActionButtons === true
+    }
+  };
+  base.markdown = buildWorkspaceMarkdown(note, tabs);
+  base.html = buildWorkspaceExportHtml(note, base);
+  return base;
+}
+
+function downloadTextFile(filename, content, mime = 'text/plain;charset=utf-8') {
+  const blob = new Blob([String(content || '')], { type: mime });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => {
+    try { URL.revokeObjectURL(href); } catch (e) { }
+  }, 1200);
+}
+
+function downloadWorkspaceHtml(note) {
+  const artifact = collectWorkspaceArtifact(note);
+  downloadTextFile(`${getArtifactFileSlug(note)}--pzdrk.html`, artifact.html, 'text/html;charset=utf-8');
+  showToast('HTML-снимок скачан');
+  return artifact;
+}
+
+function downloadWorkspaceMarkdown(note) {
+  const artifact = collectWorkspaceArtifact(note);
+  downloadTextFile(`${getArtifactFileSlug(note)}--pzdrk.md`, artifact.markdown, 'text/markdown;charset=utf-8');
+  showToast('Markdown-снимок скачан');
+  return artifact;
+}
+
+async function saveWorkspaceArtifact(note, options = {}) {
+  const artifact = collectWorkspaceArtifact(note);
+  const result = await sendRuntimeMessage('saveArtifact', { artifact });
+  if (!options?.silent) showToast(`Сохранено в архив: ${result?.artifact?.tabCount || artifact.tabs.length} вкладок`);
+  return result;
+}
+
+async function autoSaveWorkspaceArtifact(note) {
+  if (!note || !note.isConnected) return null;
+  const settings = runtimeSettings || await getSettings().catch(() => ({}));
+  if (settings?.artifactAutoSave !== true) return null;
+  if (note.dataset.artifactAutoSaving === 'true') return null;
+  note.dataset.artifactAutoSaving = 'true';
+  try {
+    return await saveWorkspaceArtifact(note, { silent: true });
+  } finally {
+    if (note.isConnected) note.dataset.artifactAutoSaving = 'false';
+  }
+}
+
+async function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Не удалось прочитать screenshot'));
+    img.src = dataUrl;
+  });
+}
+
+async function captureWorkspacePng(note) {
+  if (!note || !note.isConnected) throw new Error('Нет активной панели');
+  const dataUrl = await sendRuntimeMessage('captureVisibleTab');
+  const img = await loadImageFromDataUrl(dataUrl);
+  const rect = note.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const sx = Math.max(0, Math.floor(rect.left * dpr));
+  const sy = Math.max(0, Math.floor(rect.top * dpr));
+  const sw = Math.max(1, Math.min(Math.floor(rect.width * dpr), img.naturalWidth - sx));
+  const sh = Math.max(1, Math.min(Math.floor(rect.height * dpr), img.naturalHeight - sy));
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Не удалось собрать PNG');
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `${getArtifactFileSlug(note)}--pzdrk-visible.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1200);
+  showToast('PNG-снимок видимой панели скачан');
+}
+
+async function sendWorkspaceToTelegram(note) {
+  const artifact = collectWorkspaceArtifact(note);
+  await sendRuntimeMessage('saveArtifact', { artifact }).catch(() => null);
+  const result = await sendRuntimeMessage('sendTelegramArtifact', { artifact });
+  showToast(`Telegram: отправлено ${Array.isArray(result?.sent) ? result.sent.join(', ') : 'ok'}`);
+  return result;
+}
+
 function findNoteTabByMention(note, mention = '') {
   const needle = String(mention || '').replace(/^@/, '').trim().toLowerCase();
   if (!needle) return null;
@@ -2657,6 +3021,10 @@ function updateNoteNavPlacement(note) {
   if (!note || !note.isConnected) return;
   const nav = note.querySelector('.pzdrk-note-nav');
   if (!nav) return;
+  if (!areLeftNavButtonsEnabled()) {
+    nav.style.display = 'none';
+    return;
+  }
   if (note.classList.contains('docked')) return;
 
   nav.classList.remove('nav-overlay');
@@ -2778,7 +3146,8 @@ function bringNoteToFront(note) {
 function getActionEnabledNotes() {
   return currentNotes
     .filter(note => note && note.isConnected)
-    .filter(note => note.dataset.actionsEnabled === 'true');
+    .filter(note => note.dataset.actionsEnabled === 'true')
+    .filter(note => areRightActionButtonsEnabled());
 }
 
 // ============ NOTE CREATION ============
@@ -2813,7 +3182,12 @@ function createNote(options = {}) {
   // Track if note is "pinned" (clicked to stay open)
   note.dataset.pinned = 'false';
 
-  getSettings().then(s => { if (s.classicMode) note.classList.add('classic-mode'); });
+  getSettings().then(s => {
+    runtimeSettings = s;
+    if (s.classicMode) note.classList.add('classic-mode');
+    note.dataset.navEnabled = s.showLeftNavButtons === true ? 'true' : 'false';
+    note.dataset.actionsEnabled = s.showRightActionButtons === true ? 'true' : 'false';
+  });
 
   note.innerHTML = `
     <div class="pzdrk-resize-n"></div><div class="pzdrk-resize-s"></div>
@@ -2840,7 +3214,10 @@ function createNote(options = {}) {
             <button class="pzdrk-btn-icon pzdrk-btn-mindmap" title="Карта (M)">🗺</button>
             <button class="pzdrk-btn-icon pzdrk-btn-speak" title="Озвучить (V)">🔊</button>
             <button class="pzdrk-btn-icon pzdrk-btn-copy" title="Копировать">📋</button>
-            <button class="pzdrk-btn-icon pzdrk-btn-download" title="Скачать">💾</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-save-artifact" title="Сохранить workspace в архив">💽</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-download" title="Скачать HTML">💾</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-capture" title="Скачать PNG видимой панели">▣</button>
+            <button class="pzdrk-btn-icon pzdrk-btn-telegram" title="Отправить HTML/Markdown в Telegram">Tg</button>
             <button class="pzdrk-btn-icon pzdrk-btn-obsidian" title="Сохранить в Obsidian">Ob</button>
           </div>
           <span class="pzdrk-note-tool-divider" aria-hidden="true"></span>
@@ -3005,11 +3382,55 @@ function createNote(options = {}) {
   });
 
   // Download
-  note.querySelector('.pzdrk-btn-download').addEventListener('click', () => {
-    const content = note.querySelector('.pzdrk-note-content').innerText;
-    const blob = new Blob([`# ${title}\n\nURL: ${window.location.href}\n\n${content}`], { type: 'text/markdown' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `pzdrk-${Date.now()}.md`; a.click();
-    showToast('💾 Скачано');
+  note.querySelector('.pzdrk-btn-save-artifact')?.addEventListener('click', async () => {
+    const btn = note.querySelector('.pzdrk-btn-save-artifact');
+    const prev = btn?.textContent;
+    if (btn) btn.textContent = '...';
+    try {
+      await saveWorkspaceArtifact(note);
+    } catch (e) {
+      showToast('Архив: ' + (e?.message || 'ошибка сохранения'));
+    } finally {
+      if (btn) btn.textContent = prev || '💽';
+    }
+  });
+
+  note.querySelector('.pzdrk-btn-download')?.addEventListener('click', (e) => {
+    try {
+      if (e.shiftKey || e.altKey) {
+        downloadWorkspaceMarkdown(note);
+      } else {
+        downloadWorkspaceHtml(note);
+      }
+    } catch (err) {
+      showToast('Экспорт: ' + (err?.message || 'ошибка'));
+    }
+  });
+
+  note.querySelector('.pzdrk-btn-capture')?.addEventListener('click', async () => {
+    const btn = note.querySelector('.pzdrk-btn-capture');
+    const prev = btn?.textContent;
+    if (btn) btn.textContent = '...';
+    try {
+      await captureWorkspacePng(note);
+    } catch (e) {
+      showToast('PNG: ' + (e?.message || 'ошибка снимка'));
+    } finally {
+      if (btn) btn.textContent = prev || '▣';
+    }
+  });
+
+  note.querySelector('.pzdrk-btn-telegram')?.addEventListener('click', async () => {
+    const btn = note.querySelector('.pzdrk-btn-telegram');
+    const prev = btn?.textContent;
+    if (btn) btn.textContent = '...';
+    try {
+      await sendWorkspaceToTelegram(note);
+    } catch (e) {
+      showToast('Telegram: ' + (e?.message || 'ошибка отправки'));
+    } finally {
+      if (btn) btn.textContent = prev || 'Tg';
+    }
   });
 
   note.querySelector('.pzdrk-btn-obsidian')?.addEventListener('click', () => {
@@ -3035,7 +3456,7 @@ function createNote(options = {}) {
       const summaryText = (lastSummaryContent || note.querySelector('.pzdrk-note-content').innerText || '').substring(0, 2500);
       const pageSnippet = (lastSummaryData?.pageContent || extractPageContent()).substring(0, 3500);
 
-      const voicePrompt = PROMPTS.voiceScript
+      const voicePrompt = getPromptOverride('voiceScript', settings)
         .replace('{url}', window.location.href)
         .replace('{title}', document.title)
         .replace('{domain}', ranking.domain || 'Other')
@@ -3524,7 +3945,7 @@ function setupHoverInteractions(container) {
         const summary = (lastSummaryContent || '').substring(0, 2200);
         const pageSnippet = (lastSummaryData?.pageContent || extractPageContent()).substring(0, 3000);
 
-        const prompt = PROMPTS.actionToPrompt
+        const prompt = getPromptOverride('actionToPrompt')
           .replace('{action}', actionText)
           .replace('{noteTitle}', noteTitle)
           .replace('{section}', section || '—')
@@ -4759,12 +5180,12 @@ async function enrichSummarySections(note, summaryJson, pageContent, contextText
   const sections = Array.isArray(summaryJson.sections) ? summaryJson.sections : [];
   if (!sections.length) return;
 
-  const system = String(settings?.sectionEnrichPrompt || PROMPTS.sectionEnrich || '').trim();
+  const system = String(settings?.sectionEnrichPrompt || getPromptOverride('sectionEnrich', settings) || '').trim();
   const url = window.location.href;
   const title = document.title;
   const pageSnippet = clipPromptInput(pageContent, SECTION_ENRICH_INPUT_CHARS);
 
-  await runWithConcurrency(sections, getAdaptiveParallelLimit(settings, 4, 5), async (s, i) => {
+  await runWithConcurrency(sections, getAdaptiveParallelLimit(settings, Math.min(64, sections.length), 64), async (s, i) => {
     if (!note.isConnected) return;
 
     const key = String(s?.key || '').trim() || slugifyForId(`${s?.emoji || ''} ${s?.label || ''}`);
@@ -4802,7 +5223,7 @@ async function maybeAutoSpeakSummary(settings) {
     const summaryText = (lastSummaryContent || '').substring(0, 2500);
     const pageSnippet = (lastSummaryData?.pageContent || extractPageContent()).substring(0, 3500);
 
-    const voicePrompt = PROMPTS.voiceScript
+    const voicePrompt = getPromptOverride('voiceScript', settings)
       .replace('{url}', window.location.href)
       .replace('{title}', document.title)
       .replace('{domain}', ranking.domain || 'Other')
@@ -5275,12 +5696,12 @@ async function summarizePage() {
     // PARALLEL REQUESTS (fast path)
     const ctxPromise = getBrowserContext();
     const titlePromise = callGroq(
-      PROMPTS.generateTitle.replace('{content}', titleSeed),
+      getPromptOverride('generateTitle', settings).replace('{content}', titleSeed),
       'Только заголовок',
       { temperature: 0.2, max_tokens: getTaskMaxTokens(settings, 96) }
     );
     const rankingPromise = callGroq(
-      PROMPTS.pageRanking.replace('{content}', rankingSeed),
+      getPromptOverride('pageRanking', settings).replace('{content}', rankingSeed),
       'Только JSON',
       { temperature: 0.15, max_tokens: getTaskMaxTokens(settings, 220) }
     );
@@ -5290,7 +5711,7 @@ async function summarizePage() {
     const workflowsPromise = (async () => {
       try {
         const wfResult = await callGroq(
-          PROMPTS.workflowSuggestions.replace('{content}', rankingSeed),
+          getPromptOverride('workflowSuggestions', settings).replace('{content}', rankingSeed),
           'Только JSON',
           { temperature: 0.2, max_tokens: getTaskMaxTokens(settings, 1100, 256) }
         );
@@ -5323,7 +5744,7 @@ async function summarizePage() {
       if (shouldMapReduce) {
         summaryJson = await summarizeMapReduce({ note, pageContent, headings, contextText, settings, ranking, cleanTitle });
       } else {
-        const summaryPrompt = (settings.summaryJsonPrompt || PROMPTS.summaryJson)
+        const summaryPrompt = (settings.summaryJsonPrompt || getPromptOverride('summaryJson', settings))
           .replace('{tags}', settings.tags.join(' '))
           .replace('{browserContext}', contextText);
 
@@ -5345,7 +5766,7 @@ async function summarizePage() {
 
         // Hard fallback to markdown if JSON parse fails
         if (!summaryJson) {
-          const fallbackPrompt = (settings.summaryPrompt || PROMPTS.summary)
+          const fallbackPrompt = (settings.summaryPrompt || getPromptOverride('summary', settings))
             .replace('{tags}', settings.tags.join(' '))
             .replace('{browserContext}', contextText);
           summaryResult = await callGroq(
@@ -5361,7 +5782,7 @@ async function summarizePage() {
         const tmpJson = await summarizeMapReduce({ note, pageContent, headings, contextText, settings, ranking, cleanTitle });
         summaryResult = summaryJsonToMarkdown(tmpJson);
       } else {
-        const summaryPrompt = (settings.summaryPrompt || PROMPTS.summary)
+        const summaryPrompt = (settings.summaryPrompt || getPromptOverride('summary', settings))
           .replace('{tags}', settings.tags.join(' '))
           .replace('{browserContext}', contextText);
 
@@ -6869,7 +7290,7 @@ function extractCommandRequest(text) {
 
 async function createCustomCommandFromRequest(requestText) {
   const ctx = getCommandContext(options?.sourceNote || null);
-  const prompt = PROMPTS.createCommand
+  const prompt = getPromptOverride('createCommand')
     .replace('{request}', requestText)
     .replace('{url}', ctx.url)
     .replace('{title}', ctx.title)
@@ -7111,9 +7532,20 @@ function initCommandSystem() {
 
   // React to storage changes
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'sync') return;
+    if (areaName !== 'sync' && areaName !== 'local') return;
     runtimeSettings = null;
     if (changes[CUSTOM_COMMANDS_KEY]) refreshCommands();
+    getSettings().then((settings) => {
+      runtimeSettings = settings;
+      currentNotes.forEach((note) => {
+        if (!note || !note.isConnected) return;
+        note.dataset.navEnabled = settings.showLeftNavButtons === true ? 'true' : 'false';
+        note.dataset.actionsEnabled = settings.showRightActionButtons === true ? 'true' : 'false';
+        buildNoteNav(note);
+        renderFloatingHints(note);
+        updateNoteActionsPlacement(note);
+      });
+    }).catch(() => {});
   });
 }
 
@@ -8066,8 +8498,9 @@ SUMMARY:
 function createFloatingHints(noteElement) {
   if (!noteElement || !noteElement.isConnected) return;
   ensureNoteWorkspace(noteElement);
-  noteElement.dataset.actionsEnabled = 'true';
-  actionsAnchorNote = noteElement;
+  const actionsVisible = areRightActionButtonsEnabled();
+  noteElement.dataset.actionsEnabled = actionsVisible ? 'true' : 'false';
+  if (actionsVisible) actionsAnchorNote = noteElement;
 
   // Ensure container exists
   let container = noteElement.querySelector('.pzdrk-note-actions');
@@ -8079,7 +8512,7 @@ function createFloatingHints(noteElement) {
 
   ensureWorkspaceCommandPlaceholders(noteElement);
   renderFloatingHints(noteElement);
-  updateNoteActionsPlacement(noteElement);
+  if (actionsVisible) updateNoteActionsPlacement(noteElement);
 }
 
 function getHintCommands() {
@@ -8312,6 +8745,15 @@ function renderFloatingHints(noteElement = null) {
     ensureWorkspaceCommandPlaceholders(note);
     const container = note.querySelector('.pzdrk-note-actions');
     if (!container) return;
+    const actionsVisible = areRightActionButtonsEnabled();
+    note.dataset.actionsEnabled = actionsVisible ? 'true' : 'false';
+    if (!actionsVisible) {
+      container.innerHTML = '';
+      container.dataset.count = '0';
+      container.style.display = 'none';
+      return;
+    }
+    container.style.display = '';
 
     const btnById = new Map();
     container.innerHTML = '';
@@ -8412,6 +8854,11 @@ function updateNoteActionsPlacement(noteElement = actionsAnchorNote) {
   if (!note || !note.isConnected) return;
   const container = note.querySelector('.pzdrk-note-actions');
   if (!container) return;
+  if (!areRightActionButtonsEnabled() || note.dataset.actionsEnabled !== 'true') {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
 
   if (note.classList.contains('docked')) {
     hideActionFlyout(true);
@@ -8618,7 +9065,7 @@ async function generateMindmap(sourceNote = null, options = {}) {
 
     // 1. Initial scaffold
     setMindmapStage('Собираю глубокий каркас карты…', 'Сначала плотный каркас с кластерами и подветками, потом точечно углубляю развилки.');
-    const prompt = PROMPTS.mindmap
+    const prompt = getPromptOverride('mindmap', settings)
       .replace('{content}', content)
       .replace('{summary}', summary || '—');
     const result = await callGroq(prompt, 'Только JSON объект.', { temperature: 0.22, max_tokens: getTaskMaxTokens(settings, 2600, 820) });
@@ -8640,12 +9087,12 @@ async function generateMindmap(sourceNote = null, options = {}) {
       let completed = 0;
       setMindmapStage(stageTitle, `${completed}/${uniqueTargets.length}`);
 
-      await runWithConcurrency(uniqueTargets, getAdaptiveParallelLimit(settings, Math.min(6, Math.max(4, uniqueTargets.length)), 6, 2), async (node) => {
+      await runWithConcurrency(uniqueTargets, getAdaptiveParallelLimit(settings, Math.min(64, Math.max(4, uniqueTargets.length)), 64, 2), async (node) => {
         const existingChildren = (node.children || []).map(child => `- ${child.label}`).join('\n') || '—';
         const flatten = flattenMindmapNodes(data.nodes);
         const nodeDepth = flatten.find(entry => entry.node === node)?.depth ?? 0;
         const inheritedGroup = normalizeMindmapGroup(node.group || '', node.label || '');
-        const expandPrompt = PROMPTS.mindmapExpand
+        const expandPrompt = getPromptOverride('mindmapExpand', settings)
           .replace('{label}', node.label)
           .replace('{description}', node.description || '—')
           .replace('{existingChildren}', existingChildren)

@@ -19,6 +19,7 @@ const manifest = {
     'declarativeNetRequestFeedback',
     'scripting',
     'alarms',
+    'unlimitedStorage',
     'offscreen'
   ],
   host_permissions: ['<all_urls>'],

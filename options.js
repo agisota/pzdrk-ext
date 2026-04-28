@@ -32,7 +32,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     'voiceProvider', 'voiceApiKey',
     'voiceChatMode', 'voicePersonality', 'autoSpeakSummary',
     'actionPrompts',
-    'twoColumnSummary', 'summaryJsonPrompt', 'sectionEnrichPrompt'
+    'twoColumnSummary', 'summaryJsonPrompt', 'sectionEnrichPrompt',
+    'showLeftNavButtons', 'showRightActionButtons',
+    'artifactAutoSave',
+    'promptOverrides'
+  ]);
+  const localSettings = await chrome.storage.local.get([
+    'telegramEnabled',
+    'telegramBotToken',
+    'telegramChatId',
+    'telegramSendHtml',
+    'telegramSendMarkdown'
   ]);
 
   async function loadLocalOverrides() {
@@ -57,6 +67,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     return Array.from(new Set((Array.isArray(list) ? list : []).map(s => String(s || '').trim()).filter(Boolean)));
   }
 
+  function sendRuntimeMessage(action, payload = {}) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action, ...payload }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (response?.success) resolve(response.data);
+        else reject(new Error(response?.error || `${action} failed`));
+      });
+    });
+  }
+
+  function downloadTextFile(filename, content, mime = 'text/plain;charset=utf-8') {
+    const blob = new Blob([String(content || '')], { type: mime });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1200);
+  }
+
+  function safeFilename(value) {
+    return String(value || 'pzdrk')
+      .trim()
+      .replace(/[^\wа-яА-ЯёЁ.-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 90) || 'pzdrk';
+  }
+
   function applyLocalOverrides(settings, overrides) {
     if (!overrides || typeof overrides !== 'object') return settings;
 
@@ -77,8 +121,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (Number.isFinite(value)) next[key] = value;
     }
 
-    for (const key of ['byokMode', 'prefetchOnHover', 'mapReduceEnabled', 'twoColumnSummary']) {
+    for (const key of ['byokMode', 'prefetchOnHover', 'mapReduceEnabled', 'twoColumnSummary', 'showLeftNavButtons', 'showRightActionButtons', 'artifactAutoSave']) {
       if (typeof overrides[key] === 'boolean') next[key] = overrides[key];
+    }
+
+    if (overrides.promptOverrides && typeof overrides.promptOverrides === 'object') {
+      next.promptOverrides = overrides.promptOverrides;
     }
 
     if (groqApiKeys.length || cerebrasApiKeys.length) next.byokMode = true;
@@ -703,6 +751,221 @@ PAGE SNIPPET:
 {content}`
   };
 
+  const PROMPT_REGISTRY_DEFAULTS = {
+    summary: `${PROMPT_OPERATING_SYSTEM}
+
+Сделай подробный operator-grade разбор страницы. Не пересказывай текст; собери карту смысла, рисков, механизмов и применения.
+
+Структура: TL;DR, СУТЬ, КАРТА, МЕХАНИЗМЫ, ЗАЧЕМ ВАЖНО, РИСКИ, ПРИМЕНЕНИЕ, АВТОМАТИЗАЦИИ, ОТКРЫТЫЕ ВОПРОСЫ, ЧТО ПРОВЕРИТЬ, ДЕЙСТВИЯ.
+Пиши по-русски, проверяемо, с явной маркировкой гипотез и пробелов.
+
+ТЕГИ: {tags}
+КОНТЕКСТ: {browserContext}`,
+
+    summaryJson: `${PROMPT_OPERATING_SYSTEM}
+
+Верни только валидный JSON для двухколоночной summary: sections[], til[], actions[], concrete_prompts[].
+Каждая секция: key, emoji, label, left[], right.commentary[], right.terms[], right.entities[], right.refs[].
+Левая колонка — простой русский смысл; оригинальные термины и англицизмы — в right.
+
+ТЕГИ: {tags}
+КОНТЕКСТ: {browserContext}`,
+
+    sectionEnrich: `${PROMPT_OPERATING_SYSTEM}
+
+Обогати одну секцию. Верни только JSON с right.commentary, right.terms, right.entities, right.refs.
+Не повторяй left; добавь связи, риски, проверки и практические нюансы.`,
+
+    generateTitle: `Дай цепкий русский заголовок 2-5 слов. Только заголовок. Передай angle материала, не generic-кликбейт.
+Контент: {content}`,
+
+    pageRanking: `Верни только JSON: depth, depthExplanation, depthPercent, domain, domainExplanation, domainConfidence, tags, tagExplanations, oneLineValue.
+Оцени интеллектуальную плотность, категорию и теги с опорой на контент.
+Контент: {content}`,
+
+    workflowSuggestions: `${PROMPT_OPERATING_SYSTEM}
+
+Сгенерируй 10 лучших следующих сценариев работы как JSON массив: title, desc, prompt.
+Смешай исследование, стратегию, продукт, инженеринг, критику и операции. Каждый prompt должен вести к артефакту.
+
+КОНТЕНТ: {content}`,
+
+    voiceScript: `${PROMPT_OPERATING_SYSTEM}
+
+Подготовь текст для озвучки 120-220 слов: главное, зачем это, где риск, что делать дальше, куда углубляться.
+Без markdown, короткими фразами.
+
+URL: {url}
+TITLE: {title}
+SUMMARY: {summary}
+PAGE SNIPPET: {content}`,
+
+    mindmap: `${PROMPT_OPERATING_SYSTEM}
+
+Собери кластерную исследовательскую mindmap. Верни только JSON: title, nodes[], metadata.
+Нужны 7-10 главных веток, 40-64 узла, разные типы узлов, связи [[edge:...]], evidence и questions.
+
+КОНТЕНТ: {content}
+SUMMARY: {summary}`,
+
+    mindmapExpand: `${PROMPT_OPERATING_SYSTEM}
+
+Расширь ветку mindmap. Верни только JSON массив новых children: 3-5 узлов, у важных узлов 2-4 grandchildren.
+Не дублируй существующие children. Добавь связи, risks, evidence, questions.
+
+Ветка: {label}
+Описание: {description}
+Уже существующие дети: {existingChildren}
+КОНТЕКСТ: {content}
+SUMMARY: {summary}`,
+
+    followUp: `${PROMPT_OPERATING_SYSTEM}
+
+Ответь на вопрос по контексту заметки. Сначала ответ, затем 1-3 supporting points, затем лучший next question если данных не хватает.
+Контекст: {history}
+Вопрос: {question}`,
+
+    actionToPrompt: `${PROMPT_OPERATING_SYSTEM}
+
+Сгенерируй один готовый prompt для LLM по действию пользователя. Нужны цель, входные данные, ограничения, формат ответа и критерии качества.
+Верни только prompt.
+
+ACTION: {action}
+ORIGIN: {noteTitle} / {section} / {originLine}
+URL: {url}
+TITLE: {title}
+BROWSER CONTEXT: {browserContext}
+SUMMARY: {summary}
+PAGE SNIPPET: {content}`,
+
+    createCommand: `${PROMPT_OPERATING_SYSTEM}
+
+Сгенерируй один JSON объект команды pzdrk: id, title, icon, scope, mode, prompt, system.
+Никаких лишних полей. Если команда зависит от выделения — scope=selection и используй {selection}.
+
+ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {request}`
+  };
+
+  const PROMPT_REGISTRY_LABELS = {
+    summary: 'Main Summary',
+    summaryJson: 'JSON Summary',
+    sectionEnrich: 'Section Enrich',
+    generateTitle: 'Title Generator',
+    pageRanking: 'Page Ranking',
+    workflowSuggestions: 'Workflow Suggestions',
+    voiceScript: 'Voice Script',
+    mindmap: 'Mindmap',
+    mindmapExpand: 'Mindmap Expand',
+    followUp: 'Follow-up Q&A',
+    actionToPrompt: 'Action → Prompt',
+    createCommand: 'Command Builder'
+  };
+
+  const promptOverrides = (settings.promptOverrides && typeof settings.promptOverrides === 'object') ? settings.promptOverrides : {};
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function getPromptRegistryValue(key) {
+    const override = String(promptOverrides[key] || '');
+    return override || PROMPT_REGISTRY_DEFAULTS[key] || '';
+  }
+
+  function renderPromptRegistry() {
+    const list = document.getElementById('promptRegistryList');
+    if (!list) return;
+    list.innerHTML = Object.keys(PROMPT_REGISTRY_DEFAULTS).map((key) => `
+      <div class="prompt-card" data-prompt-card="${escapeHtml(key)}">
+        <div class="prompt-card-head">
+          <div class="prompt-card-title">${escapeHtml(PROMPT_REGISTRY_LABELS[key] || key)} <code>${escapeHtml(key)}</code></div>
+          <button class="btn-mini" data-reset-prompt="${escapeHtml(key)}" type="button">Reset</button>
+        </div>
+        <textarea id="promptOverride_${escapeHtml(key)}" spellcheck="false">${escapeHtml(getPromptRegistryValue(key))}</textarea>
+      </div>
+    `).join('');
+  }
+
+  function collectPromptOverrides() {
+    const next = {};
+    for (const key of Object.keys(PROMPT_REGISTRY_DEFAULTS)) {
+      const el = document.getElementById(`promptOverride_${key}`);
+      const value = String(el?.value || '').trim();
+      const defaultValue = String(PROMPT_REGISTRY_DEFAULTS[key] || '').trim();
+      if (value && value !== defaultValue) next[key] = value;
+    }
+    return next;
+  }
+
+  function setTelegramStatus(message, tone = '') {
+    const status = document.getElementById('telegramStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = tone === 'ok' ? '#bbf7d0' : (tone === 'error' ? '#fecaca' : '');
+  }
+
+  function renderArtifactList(items) {
+    const list = document.getElementById('artifactList');
+    if (!list) return;
+    const artifacts = Array.isArray(items) ? items : [];
+    if (!artifacts.length) {
+      list.innerHTML = '<div class="artifact-empty">Архив пока пуст. Нажмите кнопку 💽 на workspace, чтобы сохранить HTML/Markdown-снимок.</div>';
+      return;
+    }
+
+    list.innerHTML = artifacts.map((item) => {
+      const createdAt = item?.createdAt ? new Date(Number(item.createdAt)).toLocaleString() : 'unknown time';
+      const title = item?.title || 'pzdrk artifact';
+      const meta = [
+        item?.domain || '',
+        createdAt,
+        `${Number(item?.tabCount || 0)} вкладок`,
+        `HTML ${formatBytes(item?.htmlBytes)}`,
+        `MD ${formatBytes(item?.markdownBytes)}`
+      ].filter(Boolean).join(' • ');
+      return `
+        <div class="artifact-item" data-artifact-id="${escapeHtml(item?.id || '')}">
+          <div>
+            <div class="artifact-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+            <div class="artifact-meta">${escapeHtml(meta)}</div>
+          </div>
+          <div class="artifact-actions">
+            <button class="btn-mini" data-artifact-action="html" type="button">HTML</button>
+            <button class="btn-mini" data-artifact-action="markdown" type="button">MD</button>
+            <button class="btn-mini" data-artifact-action="telegram" type="button">TG</button>
+            <button class="btn-mini" data-artifact-action="delete" type="button">Delete</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function refreshArtifactList() {
+    const list = document.getElementById('artifactList');
+    if (list) list.innerHTML = '<div class="artifact-empty">Загружаю архив...</div>';
+    try {
+      const artifacts = await sendRuntimeMessage('listArtifacts');
+      renderArtifactList(artifacts);
+    } catch (e) {
+      if (list) list.innerHTML = `<div class="artifact-empty">Не удалось прочитать архив: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  renderPromptRegistry();
+
   // Set values
   const providerEl = document.getElementById('coreProvider');
   if (providerEl) providerEl.value = pickProvider();
@@ -744,6 +1007,25 @@ PAGE SNIPPET:
 
   const mapReduceEl = document.getElementById('mapReduceEnabled');
   if (mapReduceEl) mapReduceEl.checked = settings.mapReduceEnabled !== false;
+
+  const showLeftNavEl = document.getElementById('showLeftNavButtons');
+  if (showLeftNavEl) showLeftNavEl.checked = settings.showLeftNavButtons === true;
+  const showRightActionsEl = document.getElementById('showRightActionButtons');
+  if (showRightActionsEl) showRightActionsEl.checked = settings.showRightActionButtons === true;
+  const artifactAutoSaveEl = document.getElementById('artifactAutoSave');
+  if (artifactAutoSaveEl) artifactAutoSaveEl.checked = settings.artifactAutoSave === true;
+
+  const telegramEnabledEl = document.getElementById('telegramEnabled');
+  if (telegramEnabledEl) telegramEnabledEl.checked = localSettings.telegramEnabled === true;
+  const telegramBotTokenEl = document.getElementById('telegramBotToken');
+  if (telegramBotTokenEl) telegramBotTokenEl.value = localSettings.telegramBotToken || '';
+  const telegramChatIdEl = document.getElementById('telegramChatId');
+  if (telegramChatIdEl) telegramChatIdEl.value = localSettings.telegramChatId || '';
+  const telegramSendHtmlEl = document.getElementById('telegramSendHtml');
+  if (telegramSendHtmlEl) telegramSendHtmlEl.checked = localSettings.telegramSendHtml !== false;
+  const telegramSendMarkdownEl = document.getElementById('telegramSendMarkdown');
+  if (telegramSendMarkdownEl) telegramSendMarkdownEl.checked = localSettings.telegramSendMarkdown === true;
+
   document.getElementById('voiceProvider').value = settings.voiceProvider || 'xai';
   document.getElementById('voiceApiKey').value = settings.voiceApiKey || '';
 
@@ -831,6 +1113,80 @@ PAGE SNIPPET:
     });
   });
 
+  document.getElementById('resetAllPromptOverridesBtn')?.addEventListener('click', () => {
+    Object.keys(PROMPT_REGISTRY_DEFAULTS).forEach((key) => {
+      const el = document.getElementById(`promptOverride_${key}`);
+      if (el) el.value = PROMPT_REGISTRY_DEFAULTS[key];
+    });
+  });
+
+  document.querySelectorAll('[data-reset-prompt]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-reset-prompt');
+      const el = key ? document.getElementById(`promptOverride_${key}`) : null;
+      if (el && typeof PROMPT_REGISTRY_DEFAULTS[key] === 'string') el.value = PROMPT_REGISTRY_DEFAULTS[key];
+    });
+  });
+
+  document.getElementById('refreshArtifactsBtn')?.addEventListener('click', () => {
+    refreshArtifactList();
+  });
+
+  document.getElementById('artifactList')?.addEventListener('click', async (event) => {
+    const btn = event.target.closest('[data-artifact-action]');
+    const item = event.target.closest('[data-artifact-id]');
+    if (!btn || !item) return;
+
+    const id = item.getAttribute('data-artifact-id');
+    const action = btn.getAttribute('data-artifact-action');
+    if (!id || !action) return;
+
+    const prev = btn.textContent;
+    btn.textContent = '...';
+    try {
+      if (action === 'delete') {
+        await sendRuntimeMessage('deleteArtifact', { id });
+        await refreshArtifactList();
+        return;
+      }
+
+      const artifact = await sendRuntimeMessage('getArtifact', { id });
+      const filename = safeFilename(artifact?.title || 'pzdrk');
+
+      if (action === 'html') {
+        downloadTextFile(`${filename}.html`, artifact?.html || '', 'text/html;charset=utf-8');
+      } else if (action === 'markdown') {
+        downloadTextFile(`${filename}.md`, artifact?.markdown || artifact?.text || '', 'text/markdown;charset=utf-8');
+      } else if (action === 'telegram') {
+        await sendRuntimeMessage('sendTelegramArtifact', { artifact });
+        setTelegramStatus(`Отправлено в Telegram: ${artifact?.title || filename}`, 'ok');
+      }
+    } catch (e) {
+      setTelegramStatus(e.message || 'Artifact action failed', 'error');
+    } finally {
+      if (btn.isConnected) btn.textContent = prev;
+    }
+  });
+
+  document.getElementById('testTelegramBtn')?.addEventListener('click', async () => {
+    setTelegramStatus('Сохраняю настройки и отправляю тест...', '');
+    try {
+      await chrome.storage.local.set({
+        telegramEnabled: document.getElementById('telegramEnabled')?.checked === true,
+        telegramBotToken: document.getElementById('telegramBotToken')?.value || '',
+        telegramChatId: document.getElementById('telegramChatId')?.value || '',
+        telegramSendHtml: document.getElementById('telegramSendHtml')?.checked !== false,
+        telegramSendMarkdown: document.getElementById('telegramSendMarkdown')?.checked === true
+      });
+      await sendRuntimeMessage('testTelegram', { message: `pzdrk Telegram test: ${new Date().toISOString()}` });
+      setTelegramStatus('Telegram подключён: тестовое сообщение отправлено.', 'ok');
+    } catch (e) {
+      setTelegramStatus(e.message || 'Telegram test failed', 'error');
+    }
+  });
+
+  refreshArtifactList();
+
   // Toggles
   document.getElementById('autoSummarize').checked = settings.autoSummarize !== false;
   document.getElementById('classicMode').checked = settings.classicMode || false;
@@ -912,6 +1268,7 @@ PAGE SNIPPET:
     const prefetchDelayMs = Number.isFinite(prefetchDelayMsRaw) ? Math.max(0, Math.min(2000, Math.round(prefetchDelayMsRaw))) : DEFAULT_PREFETCH_DELAY_MS;
 
     const mapReduceEnabled = document.getElementById('mapReduceEnabled')?.checked !== false;
+    const nextPromptOverrides = collectPromptOverrides();
 
     const nextActionPrompts = {
       twitter: document.getElementById('actionPrompt_twitter').value,
@@ -932,8 +1289,9 @@ PAGE SNIPPET:
       frontendBuilder: document.getElementById('actionPrompt_frontendBuilder').value,
       renderHost: document.getElementById('actionPrompt_renderHost').value
     };
-    
-    await chrome.storage.sync.set({
+
+    await Promise.all([
+      chrome.storage.sync.set({
       coreProvider,
       groqApiKeys,
       cerebrasApiKeys,
@@ -958,8 +1316,20 @@ PAGE SNIPPET:
       autoSummarize: document.getElementById('autoSummarize').checked,
       classicMode: document.getElementById('classicMode').checked,
       privacyEnabled: document.getElementById('privacyEnabled').checked,
+      showLeftNavButtons: document.getElementById('showLeftNavButtons')?.checked === true,
+      showRightActionButtons: document.getElementById('showRightActionButtons')?.checked === true,
+      artifactAutoSave: document.getElementById('artifactAutoSave')?.checked === true,
+      promptOverrides: nextPromptOverrides,
       actionPrompts: nextActionPrompts
-    });
+      }),
+      chrome.storage.local.set({
+        telegramEnabled: document.getElementById('telegramEnabled')?.checked === true,
+        telegramBotToken: document.getElementById('telegramBotToken')?.value || '',
+        telegramChatId: document.getElementById('telegramChatId')?.value || '',
+        telegramSendHtml: document.getElementById('telegramSendHtml')?.checked !== false,
+        telegramSendMarkdown: document.getElementById('telegramSendMarkdown')?.checked === true
+      })
+    ]);
     
     status.textContent = '✓ Сохранено';
     status.className = 'status show success';
@@ -969,6 +1339,13 @@ PAGE SNIPPET:
   // Reset
   document.getElementById('resetBtn').addEventListener('click', async () => {
     await chrome.storage.sync.clear();
+    await chrome.storage.local.remove([
+      'telegramEnabled',
+      'telegramBotToken',
+      'telegramChatId',
+      'telegramSendHtml',
+      'telegramSendMarkdown'
+    ]);
     chrome.runtime.sendMessage({ action: 'resetTrackerStats' });
     location.reload();
   });

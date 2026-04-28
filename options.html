@@ -435,12 +435,128 @@
       color: #f7fee7;
     }
 
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .settings-grid .toggle-row {
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.025);
+    }
+
+    .artifact-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .artifact-list {
+      display: grid;
+      gap: 10px;
+      max-height: 360px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .artifact-empty {
+      padding: 18px;
+      border-radius: 16px;
+      border: 1px dashed rgba(125, 211, 252, 0.16);
+      color: var(--text-soft);
+      background: rgba(255,255,255,0.025);
+      line-height: 1.5;
+    }
+
+    .artifact-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(125, 211, 252, 0.10);
+      background: rgba(2, 10, 18, 0.40);
+    }
+
+    .artifact-title {
+      font-weight: 700;
+      color: #fff;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .artifact-meta {
+      margin-top: 5px;
+      font-size: 10px;
+      color: var(--text-soft);
+      line-height: 1.45;
+    }
+
+    .artifact-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+
+    .prompt-registry-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .prompt-card {
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(125, 211, 252, 0.10);
+      background: rgba(2, 10, 18, 0.38);
+    }
+
+    .prompt-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 9px;
+    }
+
+    .prompt-card-title {
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.02em;
+    }
+
+    .prompt-card textarea {
+      min-height: 190px;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .telegram-status {
+      min-height: 18px;
+      margin-top: 8px;
+      color: var(--text-soft);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 860px) {
       body { padding: 20px 16px 32px; }
       .header { padding: 18px; }
       .header-meta { padding: 12px 0 20px; }
       .actions { align-items: stretch; }
       .btn-secondary { margin-left: 0; }
+      .settings-grid { grid-template-columns: 1fr; }
+      .artifact-item { grid-template-columns: 1fr; }
+      .artifact-actions { justify-content: flex-start; }
     }
   </style>
 </head>
@@ -627,6 +743,89 @@
       </div>
     </div>
 
+    <!-- Workspace UI -->
+    <div class="section" id="workspace-ui">
+      <div class="section-title"><span class="icon">🧭</span> Workspace UI</div>
+      <div class="settings-grid">
+        <div class="toggle-row">
+          <div class="toggle-row-info">
+            <span>Левые кнопки-навигация</span>
+            <p>Показывать боковую карту разделов слева. По умолчанию выключено.</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="showLeftNavButtons"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-row-info">
+            <span>Правые action-кнопки</span>
+            <p>Показывать внешнее меню действий справа в две колонки. По умолчанию выключено.</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="showRightActionButtons"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-row-info">
+            <span>Auto-save workspace</span>
+            <p>Автоматически сохранять отрендеренный workspace после генерации вкладок.</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="artifactAutoSave"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Artifacts + Delivery -->
+    <details class="section" id="artifact-delivery" open>
+      <summary class="section-title"><span class="icon">💽</span> Архив страниц и доставка</summary>
+      <div class="section-body">
+        <div class="artifact-toolbar">
+          <div>
+            <div class="row-title">Сохранённые workspace</div>
+            <div class="row-subtitle">Локальный архив хранит Markdown, HTML и отрендеренные вкладки текущих страниц.</div>
+          </div>
+          <button class="btn-mini" id="refreshArtifactsBtn" type="button">Обновить</button>
+        </div>
+        <div class="artifact-list" id="artifactList">
+          <div class="artifact-empty">Архив пока пуст.</div>
+        </div>
+
+        <div class="row" style="margin-top: 18px;">
+          <div class="row-title">Telegram delivery</div>
+          <div class="row-subtitle">Подключите своего Telegram-бота, чтобы отправлять HTML/Markdown-снимки пользователю.</div>
+        </div>
+        <div class="settings-grid">
+          <div class="toggle-row">
+            <div class="toggle-row-info">
+              <span>Telegram включён</span>
+              <p>Отправка работает только при заполненных bot token и chat id.</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="telegramEnabled"><span class="slider"></span></label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-row-info">
+              <span>Отправлять HTML</span>
+              <p>Сохраняет дизайн и структуру вкладок как standalone-страницу.</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="telegramSendHtml" checked><span class="slider"></span></label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-row-info">
+              <span>Отправлять Markdown</span>
+              <p>Дополнительно отправляет сырой рабочий текст для редактирования.</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="telegramSendMarkdown"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <div class="row-title">Bot token</div>
+          <input type="password" id="telegramBotToken" placeholder="123456:ABC...">
+        </div>
+        <div class="row">
+          <div class="row-title">Chat ID</div>
+          <input type="text" id="telegramChatId" placeholder="@channel или numeric chat_id">
+          <div class="telegram-status" id="telegramStatus"></div>
+        </div>
+        <button class="btn-mini" id="testTelegramBtn" type="button">Проверить Telegram</button>
+      </div>
+    </details>
+
     <!-- Custom Prompt -->
     <div class="section">
       <div class="section-title"><span class="icon">📝</span> Кастомный промпт Summary <button class="btn-mini" id="resetSummaryPromptBtn" type="button">Reset</button></div>
@@ -660,6 +859,18 @@
           <div class="row-subtitle">Оставьте пустым, чтобы использовать встроенный enrich‑prompt</div>
           <textarea id="sectionEnrichPrompt" placeholder="(optional)"></textarea>
         </div>
+      </div>
+    </details>
+
+    <!-- Prompt Registry -->
+    <details class="section" id="prompt-registry" open>
+      <summary class="section-title"><span class="icon">🧬</span> Все системные промпты</summary>
+      <div class="section-body">
+        <div class="row" style="display:flex; justify-content:space-between; align-items:center; gap: 12px; margin-bottom: 12px;">
+          <div class="row-subtitle" style="margin:0;">Здесь показаны текущие промпты ядра: summary, JSON, mindmap, ranking, follow-up и генерация команд. Меняйте их и сохраняйте настройки.</div>
+          <button class="btn-mini" id="resetAllPromptOverridesBtn" type="button">Reset all</button>
+        </div>
+        <div class="prompt-registry-grid" id="promptRegistryList"></div>
       </div>
     </details>
 

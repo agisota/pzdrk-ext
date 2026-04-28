@@ -24,9 +24,9 @@
   --note-opacity: 0.78;
   --glass-blur: 24px;
   --glass-saturate: 200%;
-  --pzdrk-note-width: min(980px, calc(100vw - 112px));
-  --pzdrk-note-collapsed-width: min(860px, calc(100vw - 88px));
-  --pzdrk-note-font: 12.4px;
+  --pzdrk-note-width: min(1040px, calc(100vw - 112px));
+  --pzdrk-note-collapsed-width: min(900px, calc(100vw - 88px));
+  --pzdrk-note-font: 13.2px;
   --pzdrk-actions-width: 300px;
   --pzdrk-actions-offset: calc(var(--pzdrk-actions-width) + 16px);
   --pzdrk-flyout-width: min(540px, calc(100vw - 32px));
@@ -40,7 +40,7 @@
   max-height: 86vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -140,7 +140,7 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  max-height: calc(86vh - 78px);
+  max-height: calc(86vh - 104px);
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -200,6 +200,11 @@
 
 .pzdrk-note:hover .pzdrk-note-surface::after {
   opacity: 0.2;
+}
+
+.pzdrk-note[data-nav-enabled="false"] .pzdrk-note-nav,
+.pzdrk-note[data-actions-enabled="false"] .pzdrk-note-actions {
+  display: none !important;
 }
 
 .pzdrk-note-header,
@@ -277,6 +282,7 @@
   flex-direction: column;
   align-items: center;
   gap: 7px;
+  margin-top: 8px;
   padding: 0 12px 2px;
   pointer-events: none;
 }
@@ -291,8 +297,8 @@
   align-items: center;
   gap: 5px;
   flex: 0 0 auto;
-  min-height: 40px;
-  padding: 5px 12px 6px;
+  min-height: 36px;
+  padding: 4px 10px 5px;
   margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -312,9 +318,9 @@
 
 .pzdrk-workspace-tab {
   flex: 0 0 auto;
-  min-width: 92px;
-  max-width: 154px;
-  height: 30px;
+  min-width: 104px;
+  max-width: 170px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -324,7 +330,7 @@
   background: rgba(8, 18, 30, 0.42);
   color: rgba(238,247,255,0.62);
   font-family: var(--pzdrk-font);
-  font-size: 9.2px;
+  font-size: 10px;
   font-weight: 650;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
   transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
@@ -478,7 +484,7 @@
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.026);
-  font-size: 7.2px;
+  font-size: 8.6px;
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
@@ -492,7 +498,7 @@
   gap: 7px;
   align-self: flex-end;
   margin: 0;
-  width: min(520px, calc(100% - 28px));
+  width: min(560px, calc(100% - 28px));
   padding: 7px;
   border-radius: 17px;
   border: 1px solid rgba(125, 211, 252, 0.12);
@@ -516,7 +522,7 @@
   background: transparent;
   color: rgba(248,253,255,0.94);
   font-family: var(--pzdrk-font);
-  font-size: 9px;
+  font-size: 10.2px;
 }
 
 .pzdrk-note-ask-input::placeholder {
@@ -1727,8 +1733,9 @@
 .pzdrk-rich-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 7.7px;
-  line-height: 1.38;
+  table-layout: auto;
+  font-size: 9.2px;
+  line-height: 1.42;
 }
 
 .pzdrk-rich-table thead th {
@@ -1740,7 +1747,9 @@
   vertical-align: top;
   color: #f4fbff;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow-wrap: normal;
   background:
     linear-gradient(180deg, rgba(125, 211, 252, 0.14), rgba(125, 211, 252, 0.08)),
     rgba(8, 18, 30, 0.78);
@@ -1752,12 +1761,33 @@
   vertical-align: top;
   color: rgba(238, 247, 255, 0.84);
   border-bottom: 1px solid rgba(125, 211, 252, 0.08);
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .pzdrk-rich-table th.is-key-col,
 .pzdrk-rich-table td.is-key-col {
   color: #f8fdff;
   font-weight: 650;
+  white-space: nowrap;
+}
+
+.pzdrk-rich-table th[data-col="1"],
+.pzdrk-rich-table td[data-col="1"] {
+  width: 1%;
+  min-width: 72px;
+  text-align: center;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.pzdrk-rich-table.is-opsplan th[data-col="1"],
+.pzdrk-rich-table.is-opsplan td[data-col="1"] {
+  min-width: 78px;
+}
+
+.pzdrk-rich-table code {
+  white-space: nowrap;
 }
 
 .pzdrk-rich-table tbody tr:nth-child(even) td {
@@ -1821,7 +1851,7 @@
 
 .pzdrk-col-left {
   min-width: 0;
-  font-size: 10.4px;
+  font-size: 11.2px;
   line-height: 1.38;
 }
 
@@ -1838,7 +1868,7 @@
   min-width: 0;
   padding-left: 10px;
   border-left: 1px solid rgba(125, 211, 252, 0.12);
-  font-size: 9.5px;
+  font-size: 10.2px;
   line-height: 1.38;
   color: rgba(238,247,255,0.78);
 }
@@ -1848,7 +1878,7 @@
 .pzdrk-sidecard {
   display: grid;
   gap: 3px;
-  padding: 8px 9px;
+  padding: 7px 8px;
   border-radius: 10px;
   border: 1px solid rgba(125, 211, 252, 0.10);
   background:
@@ -1864,7 +1894,7 @@
 }
 
 .pzdrk-sidecard-body {
-  font-size: 9.2px;
+  font-size: 9.8px;
   line-height: 1.38;
 }
 
@@ -1886,9 +1916,9 @@
 
 .pzdrk-scene-board {
   display: grid;
-  gap: 12px;
-  margin: 0 0 14px;
-  padding: 14px;
+  gap: 9px;
+  margin: 0 0 10px;
+  padding: 12px;
   border-radius: 18px;
   border: 1px solid rgba(125, 211, 252, 0.14);
   background:
@@ -1925,7 +1955,7 @@
 .pzdrk-scene-board-subtitle {
   margin-top: 5px;
   max-width: 72ch;
-  font-size: 10.2px;
+  font-size: 10.8px;
   line-height: 1.42;
   color: rgba(238,247,255,0.68);
 }
@@ -1994,14 +2024,14 @@
 .pzdrk-scene-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .pzdrk-scene-card {
   display: grid;
-  gap: 9px;
-  min-height: 154px;
-  padding: 13px;
+  gap: 7px;
+  min-height: 118px;
+  padding: 11px;
   border-radius: 14px;
   border: 1px solid rgba(125, 211, 252, 0.12);
   background:
@@ -2030,20 +2060,20 @@
 
 .pzdrk-scene-card-body {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pzdrk-scene-cluster-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 9px;
+  gap: 7px;
 }
 
 .pzdrk-scene-cluster-chip {
   display: grid;
   gap: 5px;
-  min-height: 82px;
-  padding: 11px 12px;
+  min-height: 66px;
+  padding: 9px 10px;
   text-align: left;
   border-radius: 12px;
   box-shadow: 0 12px 24px rgba(2, 6, 12, 0.18);
@@ -2056,7 +2086,7 @@
 }
 
 .pzdrk-scene-cluster-sub {
-  font-size: 8.4px;
+  font-size: 9px;
   line-height: 1.42;
   color: rgba(238,247,255,0.64);
 }
@@ -2489,8 +2519,8 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  padding: 9px 10px;
-  min-height: 56px;
+  padding: 8px 10px;
+  min-height: 52px;
   box-sizing: border-box;
   border-radius: 11px;
   background:
@@ -2501,7 +2531,7 @@
   cursor: pointer;
   text-align: left;
   font-family: var(--pzdrk-font);
-  font-size: 9px;
+  font-size: 9.8px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 10px 18px rgba(2,6,12,0.18);

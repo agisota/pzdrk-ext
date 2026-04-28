@@ -85,7 +85,7 @@ describe('content rich text helpers', () => {
     expect(html).toContain('class="pzdrk-rich-lead"');
     expect(html).toContain('class="pzdrk-section-title"');
     expect(html).toContain('class="pzdrk-rich-table is-generic"');
-    expect(html).toContain('<th class="is-key-col">№</th>');
+    expect(html).toContain('<th class="is-key-col" data-col="1">№</th>');
     expect(html).toContain('data-entity="Nim"');
     expect(html).toContain('<code>nim c -d:danger</code>');
     expect(html).toContain('<ul class="pzdrk-list">');

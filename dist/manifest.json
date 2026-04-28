@@ -13,6 +13,7 @@
     "declarativeNetRequestFeedback",
     "scripting",
     "alarms",
+    "unlimitedStorage",
     "offscreen"
   ],
   "host_permissions": [
