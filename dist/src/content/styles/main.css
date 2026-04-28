@@ -207,6 +207,7 @@
   display: none !important;
 }
 
+.pzdrk-note-floating-nav,
 .pzdrk-note-header,
 .pzdrk-workspace-tabs,
 .pzdrk-note-top-nav,
@@ -270,6 +271,7 @@
 }
 
 .pzdrk-tab-pager,
+.pzdrk-note-floating-nav,
 .pzdrk-workspace-tabs,
 .pzdrk-note-top-nav,
 .pzdrk-note-bottom-dock,
@@ -278,14 +280,30 @@
   z-index: 2;
 }
 
+.pzdrk-note-floating-nav {
+  flex: 0 0 auto;
+  width: 100%;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 6px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.pzdrk-note-floating-nav .pzdrk-workspace-tabs,
+.pzdrk-note-floating-nav .pzdrk-note-top-nav {
+  pointer-events: auto;
+}
+
 .pzdrk-note-bottom-dock {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0;
-  margin-top: 9px;
-  padding: 0 12px 4px;
+  margin-top: 2px;
+  padding: 0 18px 0;
   pointer-events: none;
 }
 
@@ -296,17 +314,15 @@
 .pzdrk-workspace-tabs {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex: 0 0 auto;
-  min-height: 36px;
-  padding: 4px 10px 5px;
+  min-height: 30px;
+  padding: 0;
   margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  border-top: 1px solid rgba(125, 211, 252, 0.07);
-  border-bottom: 1px solid rgba(125, 211, 252, 0.08);
-  background:
-    linear-gradient(180deg, rgba(8, 18, 30, 0.24), rgba(8, 18, 30, 0.08));
+  border: 0;
+  background: transparent;
 }
 
 .pzdrk-workspace-tabs:empty {
@@ -322,12 +338,11 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-height: 38px;
-  padding: 5px 12px 6px;
+  min-height: 30px;
+  padding: 0;
   margin: 0;
-  border-bottom: 1px solid rgba(125, 211, 252, 0.08);
-  background:
-    linear-gradient(180deg, rgba(8, 18, 30, 0.18), rgba(8, 18, 30, 0.04));
+  border: 0;
+  background: transparent;
   pointer-events: none;
 }
 
@@ -346,8 +361,10 @@
   padding: 0 10px;
   border-radius: 9px;
   border: 1px solid rgba(125, 211, 252, 0.10);
-  background: rgba(8, 18, 30, 0.42);
-  color: rgba(238,247,255,0.62);
+  background:
+    linear-gradient(135deg, rgba(125, 211, 252, 0.08), rgba(190, 242, 100, 0.025)),
+    rgba(8, 18, 30, 0.74);
+  color: rgba(238,247,255,0.70);
   font-family: var(--pzdrk-font);
   font-size: 10px;
   font-weight: 650;
@@ -452,7 +469,9 @@
   margin: 0 auto;
   border-radius: 999px;
   border: 1px solid rgba(125, 211, 252, 0.10);
-  background: rgba(8, 18, 30, 0.36);
+  background:
+    linear-gradient(135deg, rgba(125, 211, 252, 0.09), rgba(190, 242, 100, 0.03)),
+    rgba(8, 18, 30, 0.78);
   box-shadow:
     0 12px 26px rgba(2, 6, 12, 0.20),
     inset 0 1px 0 rgba(255,255,255,0.035);
@@ -517,16 +536,19 @@
   gap: 7px;
   align-self: center;
   margin: 0;
-  width: min(640px, calc(100% - 28px));
-  padding: 7px;
-  border-radius: 17px;
-  border: 1px solid rgba(125, 211, 252, 0.12);
+  width: min(720px, calc(100% - 32px));
+  min-height: 44px;
+  padding: 6px 8px 6px 14px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
   background:
-    linear-gradient(135deg, rgba(125, 211, 252, 0.08), rgba(190, 242, 100, 0.035)),
-    rgba(8, 18, 30, 0.60);
+    linear-gradient(135deg, rgba(125, 211, 252, 0.10), rgba(190, 242, 100, 0.035)),
+    rgba(8, 18, 30, 0.76);
   box-shadow:
-    0 16px 32px rgba(2, 6, 12, 0.22),
-    inset 0 1px 0 rgba(255,255,255,0.04);
+    0 18px 38px rgba(2, 6, 12, 0.30),
+    inset 0 1px 0 rgba(255,255,255,0.055);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
@@ -535,17 +557,42 @@
   flex: 1 1 auto;
   min-width: 0;
   height: 28px;
-  padding: 0 9px;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: rgba(248,253,255,0.94);
-  font-family: var(--pzdrk-font);
-  font-size: 10.2px;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color: rgba(248,253,255,0.94) !important;
+  font-family: var(--pzdrk-font) !important;
+  font-size: 10.4px !important;
+  line-height: 1.2 !important;
+}
+
+.pzdrk-note .pzdrk-note-askbar .pzdrk-note-ask-input {
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
 }
 
 .pzdrk-note-ask-input::placeholder {
-  color: rgba(238,247,255,0.38);
+  color: rgba(238,247,255,0.42) !important;
+}
+
+.pzdrk-note-ask-input:focus,
+.pzdrk-note-ask-input:focus-visible,
+.pzdrk-note .pzdrk-note-askbar .pzdrk-note-ask-input:focus,
+.pzdrk-note .pzdrk-note-askbar .pzdrk-note-ask-input:focus-visible {
+  outline: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .pzdrk-note-ask-send {
@@ -1486,6 +1533,7 @@
 .pzdrk-note.collapsed .pzdrk-note-content,
 .pzdrk-note.collapsed .pzdrk-note-footer,
 .pzdrk-note.collapsed .pzdrk-note-actions,
+.pzdrk-note.collapsed .pzdrk-note-floating-nav,
 .pzdrk-note.collapsed .pzdrk-workspace-tabs,
 .pzdrk-note.collapsed .pzdrk-note-top-nav,
 .pzdrk-note.collapsed .pzdrk-note-bottom-dock,
@@ -1498,6 +1546,7 @@
 .pzdrk-note.collapsed:hover .pzdrk-note-content { display: block; }
 .pzdrk-note.collapsed:hover .pzdrk-note-footer { display: block; }
 .pzdrk-note.collapsed:hover .pzdrk-note-actions { display: grid; }
+.pzdrk-note.collapsed:hover .pzdrk-note-floating-nav { display: grid; }
 .pzdrk-note.collapsed:hover .pzdrk-workspace-tabs { display: flex; }
 .pzdrk-note.collapsed:hover .pzdrk-note-top-nav { display: flex; }
 .pzdrk-note.collapsed:hover .pzdrk-note-bottom-dock { display: flex; }
@@ -1523,6 +1572,7 @@
 .pzdrk-note.docked .pzdrk-note-content,
 .pzdrk-note.docked .pzdrk-note-footer,
 .pzdrk-note.docked .pzdrk-note-actions,
+.pzdrk-note.docked .pzdrk-note-floating-nav,
 .pzdrk-note.docked .pzdrk-workspace-tabs,
 .pzdrk-note.docked .pzdrk-note-top-nav,
 .pzdrk-note.docked .pzdrk-note-bottom-dock,
@@ -2622,6 +2672,7 @@
   display: none !important;
 }
 
+.pzdrk-note-flyout .pzdrk-note-floating-nav,
 .pzdrk-note-flyout .pzdrk-workspace-tabs,
 .pzdrk-note-flyout .pzdrk-note-top-nav,
 .pzdrk-note-flyout .pzdrk-note-bottom-dock,

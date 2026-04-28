@@ -3207,6 +3207,16 @@ function createNote(options = {}) {
     <div class="pzdrk-resize-e"></div><div class="pzdrk-resize-w"></div>
     <div class="pzdrk-resize-ne"></div><div class="pzdrk-resize-nw"></div>
     <div class="pzdrk-resize-se"></div><div class="pzdrk-resize-sw"></div>
+    <div class="pzdrk-note-floating-nav" aria-label="Навигация workspace">
+      <div class="pzdrk-workspace-tabs" role="tablist" aria-label="Вкладки workspace"></div>
+      <div class="pzdrk-note-top-nav">
+        <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
+          <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
+          <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
+          <button class="pzdrk-tab-round pzdrk-tab-next" type="button" title="Следующая вкладка">›</button>
+        </div>
+      </div>
+    </div>
     <div class="pzdrk-note-surface">
       <div class="pzdrk-note-header">
         <div class="pzdrk-note-header-left">
@@ -3238,14 +3248,6 @@ function createNote(options = {}) {
             <button class="pzdrk-btn-icon pzdrk-btn-dock" title="В угол">⤡</button>
             <button class="pzdrk-btn-icon pzdrk-btn-close" title="Закрыть">✕</button>
           </div>
-        </div>
-      </div>
-      <div class="pzdrk-workspace-tabs" role="tablist" aria-label="Вкладки workspace"></div>
-      <div class="pzdrk-note-top-nav">
-        <div class="pzdrk-tab-pager" aria-label="Переключение вкладок">
-          <button class="pzdrk-tab-round pzdrk-tab-prev" type="button" title="Предыдущая вкладка">‹</button>
-          <span class="pzdrk-tab-pager-label">1/1 • Главная</span>
-          <button class="pzdrk-tab-round pzdrk-tab-next" type="button" title="Следующая вкладка">›</button>
         </div>
       </div>
       <div class="pzdrk-note-content">${content}</div>
