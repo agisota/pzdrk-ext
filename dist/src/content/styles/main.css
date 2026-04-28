@@ -40,7 +40,7 @@
   max-height: 86vh;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -284,9 +284,11 @@
   flex: 0 0 auto;
   width: 100%;
   display: grid;
-  grid-template-rows: auto auto;
-  gap: 6px;
-  padding: 0 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px 0;
   box-sizing: border-box;
   pointer-events: none;
 }
@@ -315,8 +317,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
-  min-height: 30px;
+  min-width: 0;
+  min-height: 32px;
   padding: 0;
   margin: 0;
   overflow-x: auto;
@@ -336,9 +338,10 @@
 .pzdrk-note-top-nav {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   flex: 0 0 auto;
-  min-height: 30px;
+  min-width: 178px;
+  min-height: 32px;
   padding: 0;
   margin: 0;
   border: 0;
@@ -352,9 +355,9 @@
 
 .pzdrk-workspace-tab {
   flex: 0 0 auto;
-  min-width: 104px;
-  max-width: 170px;
-  height: 28px;
+  min-width: 96px;
+  max-width: 158px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -461,12 +464,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   align-self: center;
   width: fit-content;
   max-width: calc(100% - 28px);
-  padding: 5px 8px;
-  margin: 0 auto;
+  padding: 3px 5px;
+  margin: 0;
   border-radius: 999px;
   border: 1px solid rgba(125, 211, 252, 0.10);
   background:
@@ -516,9 +519,9 @@
 }
 
 .pzdrk-tab-pager-label {
-  min-width: 82px;
-  max-width: 240px;
-  padding: 4px 8px;
+  min-width: 78px;
+  max-width: 150px;
+  padding: 4px 7px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.026);
