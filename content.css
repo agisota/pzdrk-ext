@@ -140,7 +140,7 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  max-height: calc(86vh - 104px);
+  max-height: calc(86vh - 92px);
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -286,9 +286,9 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 10px 0;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
   box-sizing: border-box;
   pointer-events: none;
 }
@@ -304,8 +304,8 @@
   flex-direction: column;
   align-items: center;
   gap: 0;
-  margin-top: 2px;
-  padding: 0 18px 0;
+  margin-top: 0;
+  padding: 0 20px;
   pointer-events: none;
 }
 
@@ -316,10 +316,10 @@
 .pzdrk-workspace-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
-  min-height: 32px;
-  padding: 0;
+  min-height: 30px;
+  padding: 0 1px;
   margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -340,8 +340,8 @@
   align-items: center;
   justify-content: flex-end;
   flex: 0 0 auto;
-  min-width: 178px;
-  min-height: 32px;
+  min-width: 156px;
+  min-height: 30px;
   padding: 0;
   margin: 0;
   border: 0;
@@ -354,23 +354,23 @@
 }
 
 .pzdrk-workspace-tab {
-  flex: 0 0 auto;
-  min-width: 96px;
-  max-width: 158px;
-  height: 30px;
+  flex: 1 1 92px;
+  min-width: 82px;
+  max-width: 144px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0 10px;
-  border-radius: 9px;
+  padding: 0 9px;
+  border-radius: 8px;
   border: 1px solid rgba(125, 211, 252, 0.10);
   background:
     linear-gradient(135deg, rgba(125, 211, 252, 0.08), rgba(190, 242, 100, 0.025)),
     rgba(8, 18, 30, 0.74);
   color: rgba(238,247,255,0.70);
   font-family: var(--pzdrk-font);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: 10.5px;
+  font-weight: 700;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
   transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
@@ -420,6 +420,8 @@
 
 .pzdrk-workspace-tab-label {
   min-width: 0;
+  max-width: 100%;
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -464,38 +466,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   align-self: center;
   width: fit-content;
   max-width: calc(100% - 28px);
-  padding: 3px 5px;
+  padding: 2px 4px;
   margin: 0;
   border-radius: 999px;
-  border: 1px solid rgba(125, 211, 252, 0.10);
-  background:
-    linear-gradient(135deg, rgba(125, 211, 252, 0.09), rgba(190, 242, 100, 0.03)),
-    rgba(8, 18, 30, 0.78);
-  box-shadow:
-    0 12px 26px rgba(2, 6, 12, 0.20),
-    inset 0 1px 0 rgba(255,255,255,0.035);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   color: rgba(238,247,255,0.58);
 }
 
 .pzdrk-tab-round {
-  width: 24px;
-  height: 24px;
+  width: 23px;
+  height: 23px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid rgba(125, 211, 252, 0.13);
-  background:
-    linear-gradient(145deg, rgba(125, 211, 252, 0.08), rgba(190, 242, 100, 0.035)),
-    rgba(8, 18, 30, 0.58);
+  border: 1px solid transparent;
+  background: rgba(8, 18, 30, 0.28);
   color: rgba(238,247,255,0.76);
-  box-shadow: 0 10px 22px rgba(2, 6, 12, 0.18);
+  box-shadow: none;
   transition: transform 0.14s ease, border-color 0.14s ease, color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
 }
 
@@ -503,9 +499,7 @@
   transform: translateY(-1px);
   border-color: rgba(125, 211, 252, 0.28);
   color: #f8fdff;
-  background:
-    linear-gradient(145deg, rgba(125, 211, 252, 0.16), rgba(190, 242, 100, 0.07)),
-    rgba(10, 23, 36, 0.88);
+  background: rgba(125, 211, 252, 0.12);
   box-shadow:
     0 14px 28px rgba(2, 6, 12, 0.28),
     0 0 0 1px rgba(125, 211, 252, 0.08);
@@ -519,13 +513,13 @@
 }
 
 .pzdrk-tab-pager-label {
-  min-width: 78px;
-  max-width: 150px;
-  padding: 4px 7px;
+  min-width: 72px;
+  max-width: 136px;
+  padding: 3px 7px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.026);
-  font-size: 8.6px;
+  border: 0;
+  background: rgba(255,255,255,0.018);
+  font-size: 8.8px;
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
@@ -536,15 +530,15 @@
 .pzdrk-note-askbar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   align-self: center;
   margin: 0;
-  width: min(720px, calc(100% - 32px));
-  min-height: 44px;
-  padding: 6px 8px 6px 14px;
+  width: min(680px, calc(100% - 44px));
+  min-height: 40px;
+  padding: 5px 8px 5px 13px;
   box-sizing: border-box;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(125, 211, 252, 0.14);
   background:
     linear-gradient(135deg, rgba(125, 211, 252, 0.10), rgba(190, 242, 100, 0.035)),
@@ -559,7 +553,7 @@
 .pzdrk-note-ask-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
+  height: 26px;
   padding: 0 !important;
   border: 0 !important;
   outline: 0 !important;
@@ -569,7 +563,7 @@
   -webkit-appearance: none !important;
   color: rgba(248,253,255,0.94) !important;
   font-family: var(--pzdrk-font) !important;
-  font-size: 10.4px !important;
+  font-size: 10.8px !important;
   line-height: 1.2 !important;
 }
 
@@ -1595,8 +1589,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 7px 11px 7px 13px;
-  min-height: 0;
+  min-height: 36px;
+  padding: 6px 10px 6px 12px;
+  box-sizing: border-box;
   background:
     linear-gradient(135deg, rgba(125, 211, 252, 0.09), rgba(190, 242, 100, 0.035)),
     rgba(255, 255, 255, 0.016);
@@ -1621,6 +1616,7 @@
   gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .pzdrk-note-header-meta {
@@ -1628,13 +1624,13 @@
   align-items: center;
   align-self: center;
   gap: 5px;
-  height: 24px;
+  height: 23px;
   box-sizing: border-box;
   flex-shrink: 0;
   padding: 3px 6px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.04);
+  background: transparent;
+  border: 0;
   line-height: 1;
 }
 
@@ -1645,7 +1641,7 @@
   gap: 6px;
   flex-shrink: 0;
   white-space: nowrap;
-  height: 24px;
+  height: 23px;
   line-height: 1;
 }
 
@@ -1654,36 +1650,39 @@
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 24px;
-  padding: 2px 3px;
+  height: 23px;
+  padding: 1px 2px;
   border-radius: 999px;
-  border: 1px solid rgba(125, 211, 252, 0.10);
-  background: rgba(255,255,255,0.03);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .pzdrk-note-tool-group-shell {
-  border-color: rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.025);
+  border-color: transparent;
+  background: transparent;
 }
 
 .pzdrk-note-tool-divider {
-  width: 1px;
+  width: 0;
   height: 12px;
-  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.18), transparent);
-  opacity: 0.8;
+  background: transparent;
+  opacity: 0;
 }
 
 .pzdrk-note-title {
   font-weight: 600;
-  font-size: 11.4px;
-  line-height: 1.15;
+  font-size: 11.8px;
+  line-height: 1.2;
   color: var(--pzdrk-text);
   flex: 1;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pzdrk-section-title {
   margin: 6px 0 4px;
@@ -1697,6 +1696,7 @@
 
 .pzdrk-section {
   margin: 0 0 8px;
+  min-width: 0;
 }
 
 .pzdrk-inline-map-section {
@@ -1705,22 +1705,28 @@
 
 .pzdrk-meta {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 4px;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 2px 0 7px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .pzdrk-meta-item {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 3px 7px;
+  max-width: min(220px, 100%);
+  padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid rgba(125, 211, 252, 0.12);
   background: rgba(125, 211, 252, 0.08);
-  font-size: 8.8px;
+  font-size: 9px;
+  line-height: 1.18;
   color: rgba(238,247,255,0.86);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pzdrk-meta-domain {
@@ -1833,6 +1839,7 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  word-break: keep-all;
   overflow-wrap: normal;
   background:
     linear-gradient(180deg, rgba(125, 211, 252, 0.14), rgba(125, 211, 252, 0.08)),
@@ -1854,6 +1861,8 @@
   color: #f8fdff;
   font-weight: 650;
   white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 
 .pzdrk-rich-table th[data-col="1"],
@@ -1867,7 +1876,8 @@
 
 .pzdrk-rich-table.is-opsplan th[data-col="1"],
 .pzdrk-rich-table.is-opsplan td[data-col="1"] {
-  min-width: 78px;
+  min-width: 92px;
+  word-break: keep-all;
 }
 
 .pzdrk-rich-table code {
@@ -2113,6 +2123,7 @@
 
 .pzdrk-scene-card {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 7px;
   min-height: 118px;
   padding: 11px;
@@ -2123,6 +2134,7 @@
     rgba(8, 18, 30, 0.44);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   grid-column: span 6;
+  overflow: hidden;
 }
 
 .pzdrk-scene-card-map {
@@ -2134,45 +2146,64 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .pzdrk-scene-card-title {
+  min-width: 0;
   font-size: 12.2px;
+  line-height: 1.25;
   font-weight: 700;
   color: rgba(255,255,255,0.95);
+  overflow-wrap: anywhere;
 }
 
 .pzdrk-scene-card-body {
   display: grid;
   gap: 6px;
+  min-width: 0;
+  min-height: 0;
 }
 
 .pzdrk-scene-cluster-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 7px;
 }
 
 .pzdrk-scene-cluster-chip {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
   gap: 5px;
   min-height: 66px;
   padding: 9px 10px;
   text-align: left;
   border-radius: 12px;
   box-shadow: 0 12px 24px rgba(2, 6, 12, 0.18);
+  overflow: hidden;
+  min-width: 0;
 }
 
 .pzdrk-scene-cluster-title {
-  font-size: 10.4px;
+  min-width: 0;
+  font-size: 10.8px;
+  line-height: 1.22;
   font-weight: 700;
   color: rgba(255,255,255,0.95);
+  overflow-wrap: anywhere;
 }
 
 .pzdrk-scene-cluster-sub {
-  font-size: 9px;
-  line-height: 1.42;
+  min-width: 0;
+  font-size: 9.4px;
+  line-height: 1.38;
   color: rgba(238,247,255,0.64);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .pzdrk-scene-mini-map,
@@ -2183,13 +2214,16 @@
 }
 
 .pzdrk-scene-line {
+  min-width: 0;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(255,255,255,0.035);
   border: 1px solid rgba(125, 211, 252, 0.08);
-  font-size: 8.9px;
+  font-size: 9.3px;
   line-height: 1.48;
   color: rgba(238,247,255,0.82);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pzdrk-scene-empty {
@@ -2455,20 +2489,20 @@
 
 /* Header Buttons */
 .pzdrk-btn-icon {
-  width: 19px;
-  height: 19px;
-  flex: 0 0 19px;
-  display: flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
   padding: 0;
-  border-radius: 7px;
-  font-size: 8.4px;
+  border-radius: 6px;
+  font-size: 8.2px;
   line-height: 1;
   text-align: center;
-  border: 1px solid rgba(125, 211, 252, 0.10);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid transparent;
+  background: transparent;
   color: rgba(238,247,255,0.84);
   font-family: var(--pzdrk-font);
   font-weight: 650;
@@ -2484,7 +2518,7 @@
 
 .pzdrk-btn-close {
   color: rgba(255, 228, 230, 0.92);
-  border-color: rgba(253, 164, 175, 0.14);
+  border-color: transparent;
 }
 
 .pzdrk-btn-close:hover {
@@ -2498,15 +2532,16 @@
 
 /* Privacy & Token Badges - Aligned */
 .pzdrk-privacy-badge, .pzdrk-token-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 16px;
+  height: 15px;
   padding: 0 6px;
   border-radius: 999px;
-  font-size: 6.8px;
+  font-size: 7px;
   cursor: help;
   gap: 2px;
+  line-height: 1;
 }
 
 .pzdrk-privacy-badge {

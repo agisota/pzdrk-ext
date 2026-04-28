@@ -4133,12 +4133,41 @@ function setupHoverInteractions(container) {
     });
   });
 
-  container.querySelectorAll('.pzdrk-btn-icon').forEach(btn => {
+  const controlTipDetails = [
+    ['pzdrk-btn-mindmap', 'Открывает структурную карту текущей темы и позволяет перейти к связям/экспорту.'],
+    ['pzdrk-btn-speak', 'Озвучивает текущую сводку голосом, если браузер разрешает воспроизведение.'],
+    ['pzdrk-btn-copy', 'Копирует текст текущей вкладки в буфер обмена.'],
+    ['pzdrk-btn-save-artifact', 'Сохраняет workspace как артефакт: HTML, Markdown, JSON и метаданные.'],
+    ['pzdrk-btn-download', 'Скачивает отрендеренную workspace-страницу как HTML.'],
+    ['pzdrk-btn-capture', 'Сохраняет видимую часть панели как PNG.'],
+    ['pzdrk-btn-telegram', 'Отправляет HTML/Markdown в Telegram, если бот подключен в настройках.'],
+    ['pzdrk-btn-obsidian', 'Сохраняет материал в Obsidian через настроенный vault/sync.'],
+    ['pzdrk-btn-dock', 'Сворачивает панель в компактный угол экрана.'],
+    ['pzdrk-btn-close', 'Закрывает текущую панель без удаления сохраненных артефактов.'],
+    ['pzdrk-tab-prev', 'Переходит к предыдущей уже сгенерированной вкладке.'],
+    ['pzdrk-tab-next', 'Переходит к следующей уже сгенерированной вкладке.']
+  ];
+
+  const getControlTipDetail = (el) => {
+    const found = controlTipDetails.find(([klass]) => el.classList?.contains(klass));
+    return found ? found[1] : '';
+  };
+
+  container.querySelectorAll('.pzdrk-btn-icon, .pzdrk-tab-round').forEach(btn => {
     bindTip(btn, () => {
       const t = (btn.getAttribute('title') || '').trim();
       if (!t) return null;
-      return `<strong>${escapeHtml(t)}</strong>`;
+      const detail = getControlTipDetail(btn);
+      return `<strong>${escapeHtml(t)}</strong>${detail ? `<br><span style="opacity:0.72">${escapeHtml(detail)}</span>` : ''}`;
     });
+  });
+
+  container.querySelectorAll('.pzdrk-workspace-tab-hit').forEach(btn => {
+    bindTip(btn, () => {
+      const t = (btn.getAttribute('title') || btn.textContent || '').trim();
+      if (!t) return null;
+      return `<strong>${escapeHtml(t)}</strong><br><span style="opacity:0.72">Перейти к готовой вкладке без повторной генерации.</span>`;
+    }, 220);
   });
 
   container.querySelectorAll('.pzdrk-note-action').forEach(btn => {
