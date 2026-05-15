@@ -24,18 +24,18 @@
     "@typescript-eslint/parser": "^6.19.0",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3",
-    "vite": "^5.0.11",
-    "vitest": "^1.2.0",
+    "vite": "^8.0.13",
+    "vitest": "^4.1.6",
     "tsx": "^4.7.0"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@fastify/websocket": "^8.3.0",
-    "@zilliz/milvus2-sdk-node": "^2.4.0",
-    "fastify": "^4.26.0",
+    "@zilliz/milvus2-sdk-node": "^2.6.14",
+    "fastify": "^5.8.5",
     "fs-extra": "^11.2.0",
     "chokidar": "^3.5.3",
-    "mercurius": "^13.3.3",
+    "mercurius": "^16.8.0",
     "graphql": "^16.8.1",
     "ws": "^8.16.0"
   },
