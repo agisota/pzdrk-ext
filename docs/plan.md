@@ -108,3 +108,23 @@ Acceptance (2026-10-03): 13 suites / 119 tests passed; TypeScript/Vite build and
 Parallel review corrections: capture click-to-pin before stop-propagating child handlers; make the transparent preview band pass page input through; disable transient/docked resize-handle interception and keep the launcher above handles. Glass/two-column content, Qwen, credentials and exports remain unchanged.
 
 User correction: stop repeated browser launches and foreground disruption. Further UI launches/retries stopped; existing evidence retained and the owned fixture service stopped. Do not reopen the browser merely to repeat accepted checks.
+
+## Actionable two-column prompts
+
+| Deliverable | Owner / files | Dependency | Verification |
+|---|---|---|---|
+| Strong source-specific summary, explanation and next-action instructions | ActionPrompts: `prompt-defaults.js` | Existing string-based JSON contract | Lead compares baseline and revised live model outputs on synthetic sources; no wording-pin tests |
+| Preserve useful insights and full follow-ups on long pages | LongPageActions: `content.js` long-page extraction/normalization/merge only; `tests/root-summary-actions.test.ts` | Same existing final summary contract | Lead observes failing boundary regressions before implementation, then runs integrated suite and a runtime/render smoke |
+| Integration, guidance and evidence | Lead: `docs/spec.md`, `docs/plan.md`, `docs/prompts.md` | Both deliverables | Real provider smoke with synthetic inputs, actual HTML/Markdown generation, build/syntax checks and exact source hashes |
+
+No browser launches, extension reload automation, credential changes, layout redesign, extra synthesis/enrichment calls or automatic sends. The existing two-column renderer already supports rich string content; use that contract rather than introduce a second UI convention.
+
+### Actionable prompt acceptance
+
+- Final integrated source: 14 suites / 130 tests passed; TypeScript/Vite build, root content/prompt syntax and lint passed (0 errors, 4 existing warnings). Existing Vite classic-script and duplicate-icon warnings remain. LSP diagnostics were unavailable because no language server was configured for the regression file.
+- Real `qwen/qwen3.8-27b` requests used synthetic technical, decision, sparse, injection and research inputs. All five final direct replies were valid JSON and finished within 1800 tokens (163–791 output tokens). The simple notice had no actions/prompts; the injection control did not emit the malicious marker or fake DOI.
+- Actual classic validation, two-column HTML and Markdown generation were exercised on those replies. Full prompt bodies survived exports. Two linked long-page replies completed within the actual 1100-token ceiling (664/798 tokens); merged output rendered four two-column blocks, 15 bold highlights, source-linked explanations and two complete follow-ups.
+- Failing-before/passing-after regressions cover explanation association/discarded source points, ambiguous legacy commentary, whitespace-equivalent prompt deduplication, full multiline bodies, malformed nested optional values, prompt-only chunk rejection and truncated Markdown coverage.
+- Model limitations remain: technical samples sometimes proposed undocumented recovery behavior, invented example parameters or overstated duplicate prevention despite instructions. This is a small live sample, not a guarantee of factual grounding. Intermediate failures are retained alongside final outputs under `~/Projects/archive/rox-actionable-prompts-20261003/`; no real page data or browsing history was sent, and credentials were used only for provider authentication, never placed in prompts or evidence.
+- No browser windows, extension reloads, screenshots or live export sends were performed in this phase. The existing glass/layout/launcher is unchanged. The updated files require a future authorized extension reload before newly injected browser pages use them; fresh installed UI acceptance is not claimed.
+- Project prompt evolution used real counterexamples, independent reviews and a shorter prioritized JSON template. No additional global prompt/skill change is justified.
