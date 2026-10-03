@@ -1,0 +1,69 @@
+.wm-workspace {
+  --wm-ink: #283b37;
+  --wm-muted: #73847e;
+  --wm-line: #d7e1dc;
+  --wm-paper: #f8faf7;
+  --wm-accent: #2e7769;
+  color: var(--wm-ink);
+  font: 13px/1.5 "Rox Workspace", "Rox Mono Typeface SemiCondensed", ui-monospace, monospace;
+  border: 1px solid var(--wm-line);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.wm-workspace *, .wm-workspace *::before, .wm-workspace *::after { box-sizing: border-box; }
+.wm-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 17px; border-bottom: 1px solid var(--wm-line); }
+.wm-head h2 { margin: 0; color: var(--wm-ink); font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.wm-head p { margin: 3px 0 0; color: var(--wm-muted); font-size: 11px; }
+.wm-mode { display: inline-flex; flex: 0 0 auto; gap: 3px; padding: 3px; border: 1px solid var(--wm-line); border-radius: 9px; background: var(--wm-paper); }
+.wm-mode button { border: 0; border-radius: 6px; padding: 5px 9px; background: transparent; color: var(--wm-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.wm-mode button[aria-pressed="true"] { color: #fff; background: var(--wm-accent); }
+.wm-mode button:focus-visible, .wm-workspace button:focus-visible { outline: 2px solid #61a898; outline-offset: 2px; }
+.wm-body { min-width: 0; }
+.wm-local-controls { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 5px 12px; border-bottom: 1px solid var(--wm-line); background: #fff; }
+.wm-local-controls button { border: 1px solid var(--wm-line); border-radius: 6px; padding: 4px 9px; color: var(--wm-accent); background: var(--wm-paper); font: inherit; font-size: 11px; cursor: pointer; }
+.wm-local-controls button:hover { border-color: #8eb6a8; background: #eef6f1; }
+.wm-map-view:focus-visible, .wm-tree-view:focus-visible { outline: 2px solid #61a898; outline-offset: -3px; }
+.wm-visual { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 260px; }
+.wm-map-view, .wm-tree-view { min-width: 0; min-height: 260px; max-height: 530px; overflow: auto; overscroll-behavior: contain; background-color: #fbfcfa; background-image: radial-gradient(#dfe8e2 0.7px, transparent 0.7px); background-size: 16px 16px; }
+.wm-map-view[hidden], .wm-tree-view[hidden] { display: none; }
+.wm-canvas { width: max-content; min-width: 100%; min-height: 100%; padding: 10px; }
+.wm-svg { display: block; max-width: none; overflow: visible; font-family: inherit; }
+.wm-workspace[data-wm-fitted="true"] .wm-canvas { width: 100%; min-width: 0; min-height: 0; }
+.wm-workspace[data-wm-fitted="true"] .wm-svg { width: 100%; height: auto; }
+.wm-link { stroke: #b9c9c1; stroke-width: 1.7; }
+.wm-link-ref { stroke: #d18b51; stroke-width: 1.8; stroke-dasharray: 5 5; opacity: .9; }
+.wm-svg-node { cursor: pointer; outline: none; }
+.wm-svg-node rect { fill: #fff; stroke: #ccdad3; stroke-width: 1.2; filter: drop-shadow(0 2px 3px #183c2d12); transition: stroke .15s, fill .15s, stroke-width .15s; }
+.wm-svg-node text { fill: var(--wm-ink); font-size: 11px; font-weight: 600; pointer-events: none; }
+.wm-svg-node:hover rect, .wm-svg-node:focus rect { stroke: #5d9c8d; stroke-width: 2; }
+.wm-svg-node.wm-is-selected rect { fill: #e9f4ee; stroke: var(--wm-accent); stroke-width: 2.2; }
+.wm-detail { min-width: 0; max-height: 260px; overflow: auto; padding: 12px 15px; border-top: 1px solid var(--wm-line); background: #fff; }
+.wm-detail h3 { margin: 0; color: var(--wm-ink); font-size: 14px; line-height: 1.4; }
+.wm-detail-meta { margin: 4px 0 12px; color: var(--wm-muted); font-size: 10px; }
+.wm-detail-description { margin: 0 0 12px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-detail-section { margin: 12px 0 0; }
+.wm-detail-section h4 { margin: 0 0 5px; color: var(--wm-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.wm-detail-section ul { margin: 0; padding-left: 16px; }
+.wm-detail-section li { margin: 4px 0; font-size: 10px; overflow-wrap: anywhere; }
+.wm-detail-refs { margin: 12px 0 0; color: #956032; font-size: 10px; overflow-wrap: anywhere; }
+.wm-detail-empty { margin: 0; color: var(--wm-muted); font-size: 11px; }
+.wm-tree-view { padding: 12px; }
+.wm-tree, .wm-tree ul { list-style: none; margin: 0; padding-left: 18px; }
+.wm-tree { padding-left: 0; }
+.wm-tree-item { position: relative; margin: 4px 0; }
+.wm-tree-children { margin-left: 9px !important; border-left: 1px solid #d8e2dc; }
+.wm-tree-children[hidden] { display: none; }
+.wm-tree-row { display: flex; align-items: center; gap: 5px; min-height: 29px; }
+.wm-fold, .wm-fold-spacer { display: inline-grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border: 1px solid #dce5df; border-radius: 5px; color: var(--wm-muted); background: #fff; font: inherit; font-size: 12px; }
+.wm-fold:hover { border-color: #8eb6a8; color: #205e51; background: #eef6f1; }
+.wm-tree-node { display: flex; align-items: baseline; gap: 8px; max-width: 100%; border: 0; border-radius: 5px; padding: 4px 7px; color: var(--wm-ink); background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.wm-tree-node:hover, .wm-tree-node.wm-is-selected { color: #205e51; background: #eaf4ee; }
+.wm-tree-node small { color: var(--wm-muted); font-size: 9px; }
+@media (max-width: 720px) {
+  .wm-head { align-items: flex-start; padding: 12px; }
+  .wm-visual { grid-template-columns: minmax(0, 1fr); }
+  .wm-detail { max-height: 260px; border-top: 1px solid var(--wm-line); border-left: 0; }
+  .wm-map-view, .wm-tree-view { max-height: 420px; }
+}
+@media (prefers-reduced-motion: reduce) { .wm-svg-node rect { transition: none; } }

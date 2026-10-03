@@ -9,13 +9,13 @@ export const DEFAULT_PROVIDERS: Record<string, ProviderConfig> = {
     keys: [], // User-provided
     models: [
       {
-        id: 'groq/compound',
+        id: 'qwen/qwen3.8-27b',
         provider: 'groq',
-        maxTokens: 8192,
+        maxTokens: 16384,
         supportsJson: true,
         supportsStreaming: true,
-        costPer1kInput: 0.00015,
-        costPer1kOutput: 0.0006,
+        costPer1kInput: 0.0008,
+        costPer1kOutput: 0.004,
         avgLatencyMs: 650
       },
       {

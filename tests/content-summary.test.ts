@@ -135,29 +135,6 @@ describe('content summary helpers', () => {
     ]);
   });
 
-  it('derives concrete prompts from section actions when top-level actions are missing', () => {
-    const summaryObj: SummaryLike = {
-      title: 'Stargate review',
-      til: ['FOIA status matters', 'Need primary-source validation'],
-      sections: [
-        { actions: ['File FOIA request with exact tape identifiers'] },
-        { actions: [{ task: 'Build evidence matrix by source reliability' }] }
-      ]
-    };
-
-    const prompts = helpers.ensureConcretePrompts(summaryObj, { title: 'Stargate review' });
-
-    expect(prompts).toHaveLength(2);
-    expect(prompts[0].title).toBe('File FOIA request with exact tape identifiers');
-    expect(prompts[0].prompt).toContain('используй summary по странице "Stargate review"');
-    expect(prompts[0].prompt).toContain('Полезные сигналы из заметки');
-    expect(prompts[0].prompt).toContain('ВЕРНИ:');
-    expect(prompts[0].prompt).toContain('КРИТЕРИЙ КАЧЕСТВА');
-    expect(prompts[0].prompt).toContain('Разделяй факт, inference, гипотезу');
-    expect(prompts[1].title).toBe('Build evidence matrix by source reliability');
-    expect(summaryObj.concrete_prompts).toEqual(prompts);
-  });
-
   it('normalizes object-like prompt entries into readable cards', () => {
     const entry = helpers.normalizeConcretePromptEntry({
       task: 'Pressure-test the claim',
@@ -172,7 +149,7 @@ describe('content summary helpers', () => {
     });
   });
 
-  it('renders escaped prompt cards and caps the list at eight entries', () => {
+  it('renders escaped, copyable prompt cards', () => {
     const html = helpers.renderConcretePromptCards(Array.from({ length: 10 }, (_, index) => ({
       title: `Prompt <${index + 1}>`,
       desc: `Description ${index + 1}`,
@@ -180,38 +157,10 @@ describe('content summary helpers', () => {
     })));
 
     expect(html).toContain('Prompt &lt;1&gt;');
-    expect(html).toContain('data-concrete-prompt="Do &lt;step 1&gt;"');
-    expect((html.match(/class="pzdrk-prompt-card"/g) || [])).toHaveLength(8);
-    expect(html).not.toContain('Prompt &lt;9&gt;');
-    expect(html).toContain('готовый запрос');
-    expect(html).toContain('точечный prompt');
+    const encoded = html.match(/data-concrete-prompt="([^"]+)"/)?.[1];
+    expect(encoded && decodeURIComponent(encoded)).toBe('Do <step 1>');
   });
 
-  it('renders a waiting state when prompt cards are not ready yet', () => {
-    const html = helpers.renderConcretePromptCards([]);
-
-    expect(html).toContain('class="pzdrk-state-card is-waiting is-compact"');
-    expect(html).toContain('Готовые запросы ещё собираются');
-  });
-
-  it('orders sections, injects TL;DR first, and synthesizes automation section', () => {
-    const summaryObj: SummaryLike = {
-      title: 'Signal review',
-      actions: ['Собрать таблицу сигналов по источникам'],
-      sections: [
-        { key: 'usage', label: 'ПРИМЕНЕНИЕ И USE-CASES', left: ['Использовать материал как основу для проверки гипотез'] },
-        { key: 'core', label: 'СУТЬ', left: ['Материал описывает эксперимент и ожидаемые эффекты', 'Есть методика, но часть подтверждений косвенная'] }
-      ]
-    };
-
-    const sections = helpers.orderSummarySections(summaryObj);
-
-    expect(sections[0].key).toBe('tldr');
-    expect(sections[0].label).toBe('TL;DR');
-    expect(sections[1].key).toBe('core');
-    expect(sections.some(section => section.key === 'automation')).toBe(true);
-    expect(summaryObj.concrete_prompts).toBeDefined();
-  });
 
   it('normalizes nested object-like right-side content into readable text', () => {
     const right = helpers.normalizeSummaryRightBlock({

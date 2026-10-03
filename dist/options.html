@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>✦ pzdrk — Настройки</title>
+  <title>Rox Discovery — Настройки</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -73,12 +73,8 @@
       width: 54px;
       height: 54px;
       display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      object-fit: cover;
       border-radius: 18px;
-      font-size: 28px;
-      color: #04101a;
-      background: linear-gradient(135deg, var(--accent), #d9f99d);
       box-shadow: 0 18px 36px rgba(56, 189, 248, 0.22);
     }
 
@@ -563,6 +559,46 @@
       font-size: 11px;
       line-height: 1.55;
     }
+    .prompt-meta {
+      margin: 7px 0;
+      color: var(--text-dim);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .prompt-preview {
+      margin-top: 8px;
+      color: var(--text-soft);
+      font-size: 10px;
+    }
+
+    .prompt-preview summary { cursor: pointer; }
+    .prompt-preview pre {
+      margin-top: 7px;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-dim);
+      background: rgba(0, 0, 0, 0.22);
+    }
+
+    .prompt-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 10px 14px;
+      margin: 14px 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(8, 18, 28, 0.68);
+      color: var(--text-dim);
+    }
+
+    .prompt-nav a { color: var(--accent); }
 
     .telegram-status {
       min-height: 18px;
@@ -583,16 +619,16 @@
       .artifact-actions { justify-content: flex-start; }
     }
   </style>
-  <script type="module" crossorigin src="/assets/options-DYKqaWEk.js"></script>
+  <script type="module" crossorigin src="/assets/options-CmErhZfL.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/modulepreload-polyfill-B5Qt9EMX.js">
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <span class="header-icon">✦</span>
+      <img class="header-icon" src="/assets/pzdrk-LpuM--fs.png" alt="">
       <div class="header-text">
-        <h1>pzdrk Настройки</h1>
-        <div class="version">v6.4.0</div>
+        <h1>Rox Discovery Настройки</h1>
+        <div class="version">v6.5.0</div>
       </div>
     </div>
     
@@ -633,10 +669,10 @@
       </div>
       <div class="row">
         <div class="row-title">Модель</div>
-        <div class="row-subtitle">Основной default: <code>groq/compound</code>. Это agentic system Groq с web/code/browser tooling и потолком вывода 8192 токена.</div>
+        <div class="row-subtitle">Groq по умолчанию — <code>qwen/qwen3.8-27b</code> (Qwen 3.8 27B, Preview). Явно сохранённый выбор модели имеет приоритет. Groq Compound снят с поддержки 21.09.2026 и больше не является моделью по умолчанию.</div>
         <select id="model">
-          <option value="groq/compound" data-provider="groq">groq/compound (recommended)</option>
-          <option value="groq/compound-mini" data-provider="groq">groq/compound-mini</option>
+          <option value="qwen/qwen3.8-27b" data-provider="groq">qwen/qwen3.8-27b (default)</option>
+          <option value="groq/compound" data-provider="groq">groq/compound (API decommissioned 2026-09-21)</option>
           <option value="openai/gpt-oss-120b" data-provider="groq">openai/gpt-oss-120b</option>
           <option value="openai/gpt-oss-20b" data-provider="groq">openai/gpt-oss-20b</option>
           <option value="llama-3.3-70b-versatile" data-provider="groq">groq-llama-3.3-70b-versatile</option>
@@ -676,25 +712,25 @@
       </div>
       <div class="row">
         <div class="row-title">Максимальный размер ответа</div>
-        <div class="row-subtitle">Лимит ответа для summary/actions/flyouts. Для <code>groq/compound</code> безопасный ceiling сейчас 8192.</div>
+        <div class="row-subtitle">Лимит запрашиваемого ответа для summary/actions/flyouts. Максимум расширения — 8192 токена; фактический лимит может быть ниже у модели или провайдера.</div>
         <input type="text" id="targetMaxOutputTokens" placeholder="8192">
       </div>
       <div class="toggle-row">
         <div class="toggle-row-info">
-          <span>Предзагрузка при наведении</span>
-          <p>На hover по действиям справа: автогенерация (без клика)</p>
+          <span>Предварительная генерация (выключена по умолчанию)</span>
+          <p>Один общий opt-in для генерации при наведении на действие, подготовки workspace и дополнительных связанных поисков/вариантов workflow: вызовы могут уйти до клика и расходуют API-запросы/токены. Выключено — ничего не генерируется заранее; запуск по явному клику остаётся доступен.</p>
         </div>
-        <label class="toggle"><input type="checkbox" id="prefetchOnHover" checked><span class="slider"></span></label>
+        <label class="toggle"><input type="checkbox" id="prefetchOnHover"><span class="slider"></span></label>
       </div>
       <div class="row">
-        <div class="row-title">Задержка предзагрузки (ms)</div>
-        <div class="row-subtitle">Задержка перед стартом генерации после hover</div>
+        <div class="row-title">Задержка предзагрузки (мс)</div>
+        <div class="row-subtitle">Задержка перед спекулятивной генерацией после наведения; работает только при включённом opt-in.</div>
         <input type="text" id="prefetchDelayMs" placeholder="220">
       </div>
       <div class="toggle-row">
         <div class="toggle-row-info">
           <span>Map‑reduce для длинных страниц</span>
-          <p>Chunking + параллельные микро‑саммари + on-site сборка</p>
+          <p>Разбивает длинный материал на фрагменты, суммирует их и собирает общий результат. Отдельно от спекулятивной предзагрузки.</p>
         </div>
         <label class="toggle"><input type="checkbox" id="mapReduceEnabled" checked><span class="slider"></span></label>
       </div>
@@ -773,28 +809,14 @@
     <div class="section" id="workspace-ui">
       <div class="section-title"><span class="icon">🧭</span> Интерфейс workspace</div>
       <div class="settings-note">
-        <strong>Навигация вкладок</strong>
-        <p>Кнопки вкладок, стрелки и счётчик расположены отдельным верхним слоем над pop-up окном; чат остаётся отдельным нижним элементом и выравнивается по центру.</p>
+        <strong>Одна непрерывная страница</strong>
+        <p>Краткая сводка, карта и ответы доступны без вкладок и боковых action-кнопок. Сохранение, экспорт и сворачивание — внизу панели.</p>
       </div>
       <div class="settings-grid">
         <div class="toggle-row">
           <div class="toggle-row-info">
-            <span>Левые кнопки-навигация</span>
-            <p>Показывать боковую карту разделов слева. По умолчанию выключено.</p>
-          </div>
-          <label class="toggle"><input type="checkbox" id="showLeftNavButtons"><span class="slider"></span></label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-row-info">
-            <span>Правые action-кнопки</span>
-            <p>Показывать внешнее меню действий справа в две колонки. По умолчанию выключено.</p>
-          </div>
-          <label class="toggle"><input type="checkbox" id="showRightActionButtons"><span class="slider"></span></label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-row-info">
             <span>Автосохранение workspace</span>
-            <p>Автоматически сохранять отрендеренный workspace после генерации вкладок.</p>
+            <p>Сохранять завершённую сводку, карту и ответы в локальный архив расширения. Obsidian синхронизируется автоматически отдельно.</p>
           </div>
           <label class="toggle"><input type="checkbox" id="artifactAutoSave"><span class="slider"></span></label>
         </div>
@@ -843,6 +865,16 @@
             <label class="toggle"><input type="checkbox" id="telegramSendMarkdown"><span class="slider"></span></label>
           </div>
         </div>
+
+        <div class="row" style="margin-top: 18px;">
+          <div class="row-title">Автосохранение в Obsidian</div>
+          <div class="row-subtitle">Локальный мост server/obsidian-bridge.mjs автоматически запускается через LaunchAgent и принимает запросы только от этого расширения на loopback; Markdown записывается в папку Rox Discovery внутри хранилища Brain.</div>
+        </div>
+        <div class="row">
+          <div class="row-title">Токен локального моста</div>
+          <input type="password" id="obsidianBridgeToken" autocomplete="new-password" placeholder="Тот же секрет, что ROX_OBSIDIAN_BRIDGE_TOKEN">
+          <div class="telegram-status">Скопируйте локальный секрет из ~/.config/pzdrk/obsidian-bridge.token, вставьте здесь и нажмите «Сохранить». Секрет хранится только в локальном хранилище расширения. Если мост недоступен или токен неверен, сохранение завершится явной ошибкой; после запуска моста и настройки токена повторите сохранение.</div>
+        </div>
         <div class="row" style="margin-top: 12px;">
           <div class="row-title">Bot token</div>
           <input type="password" id="telegramBotToken" placeholder="123456:ABC...">
@@ -853,63 +885,88 @@
           <div class="telegram-status" id="telegramStatus"></div>
         </div>
         <button class="btn-mini" id="testTelegramBtn" type="button">Проверить Telegram</button>
+        <p class="hint">Тест отправляет одно сообщение через уже сохранённые настройки Telegram после подтверждения. Черновые поля на этой странице не применяются и не сохраняются.</p>
       </div>
     </details>
 
+    <nav class="prompt-nav" aria-label="Переход к редакторам промптов">
+      <span>Редакторы промптов:</span>
+      <a href="#prompt-legacy">Summary</a>
+      <a href="#prompt-json">JSON и обогащение</a>
+      <a href="#prompt-registry">Системные</a>
+      <a href="#action-prompts">Действия</a>
+    </nav>
+
     <!-- Custom Prompt -->
-    <div class="section">
-      <div class="section-title"><span class="icon">📝</span> Кастомный промпт Summary <button class="btn-mini" id="resetSummaryPromptBtn" type="button">Reset</button></div>
+    <div class="section" id="prompt-legacy">
+      <div class="section-title"><span class="icon">📝</span> Кастомный промпт Summary <button class="btn-mini" id="resetSummaryPromptBtn" type="button">Сбросить</button></div>
+      <div class="settings-note">
+        <strong>Как применяется</strong>
+        <p>Root content использует этот legacy-промпт в прямой ветке summary; если поле пустое, применяется общий runtime default. Для длинных страниц отдельный map‑reduce режим можно включить выше. В сборке Vite свой набор промптов: изменение здесь не меняет её content.</p>
+        <p>Переменные: <code>{tags}</code>, <code>{browserContext}</code>. Приоритет источников: непустое legacy-поле &gt; сохранённый registry override &gt; общий default. Сброс удаляет оба сохранённых значения; пустое поле само по себе не удаляет registry override.</p>
+        <p>Это редактируемая сохранённая инструкция, не готовый результат: нажмите «Сохранить», затем перегенерируйте summary. Уже созданный результат/кэш автоматически не пересчитывается.</p>
+      </div>
       <div class="row">
-        <textarea id="summaryPrompt" placeholder="Оставьте пустым для Monday-style промпта..."></textarea>
-        <p class="hint">Переменные: {tags}, {browserContext}</p>
+        <textarea id="summaryPrompt" placeholder="Оставьте пустым, чтобы использовать общий runtime default..."></textarea>
       </div>
     </div>
 
     <!-- Two-column JSON Summary -->
-    <details class="section">
+    <details class="section" id="prompt-json">
       <summary class="section-title"><span class="icon">🧱</span> 2‑колоночный JSON Summary</summary>
       <div class="section-body">
+        <div class="settings-note">
+          <strong>Ветка runtime и источник</strong>
+          <p>При включённом двухколоночном режиме root строит прямой JSON summary, а при длинном вводе может использовать map‑reduce; section-enrich вызывается для дополнительного наполнения отдельных секций. Это не модульный Vite prompt: Vite content остаётся отдельной реализацией.</p>
+          <p>Переменные для summary JSON: <code>{tags}</code>, <code>{browserContext}</code>. Приоритет: непустое legacy-поле &gt; сохранённый registry override &gt; общий runtime default. Пустое поле может использовать сохранённый registry override. Сброс удаляет оба сохранённых значения. Сохраните изменения и заново создайте summary/enrichment: существующий результат или кэш не обновится сам.</p>
+          <p>Редактор содержит входной prompt; предпросмотр ниже показывает пример подстановки контекста, а не реальный ответ модели.</p>
+        </div>
         <div class="toggle-row">
           <div class="toggle-row-info">
             <span>Двухколоночный режим</span>
-            <p>Слева: буллеты • справа: обогащение/термины/ссылки</p>
+            <p>Слева — смысл материала; справа — дополнительные поля commentary, terms, entities и refs, если они доступны. Только секционный enrich требует объект <code>right</code>; обычный JSON summary может не содержать его.</p>
           </div>
           <label class="toggle"><input type="checkbox" id="twoColumnSummary" checked><span class="slider"></span></label>
         </div>
-
         <div class="row" style="margin-top: 12px;">
-          <div class="row-title">JSON prompt (skeleton) <button class="btn-mini" id="resetSummaryJsonPromptBtn" type="button">Reset</button></div>
-          <div class="row-subtitle">Оставьте пустым, чтобы использовать встроенный schema‑prompt</div>
-          <textarea id="summaryJsonPrompt" placeholder="(optional)"></textarea>
-          <p class="hint">Переменные: {tags}, {browserContext}</p>
-        </div>
+          <div class="row-title">JSON prompt <button class="btn-mini" id="resetSummaryJsonPromptBtn" type="button">Сбросить</button></div>
+          <div class="row-subtitle">Приоритет: legacy override &gt; registry override &gt; общий runtime default. Кнопка сброса удаляет оба сохранённых значения.</div>
+          <textarea id="summaryJsonPrompt" placeholder="Оставьте пустым для общего runtime default..."></textarea>
 
+        </div>
         <div class="row">
-          <div class="row-title">Section enrich prompt <button class="btn-mini" id="resetSectionEnrichPromptBtn" type="button">Reset</button></div>
-          <div class="row-subtitle">Оставьте пустым, чтобы использовать встроенный enrich‑prompt</div>
-          <textarea id="sectionEnrichPrompt" placeholder="(optional)"></textarea>
+          <div class="row-title">Section enrich prompt <button class="btn-mini" id="resetSectionEnrichPromptBtn" type="button">Сбросить</button></div>
+          <div class="row-subtitle">Пустое поле использует общий runtime default, если нет сохранённого registry override. Приоритет: legacy override &gt; registry override &gt; общий default. Сброс удаляет оба. Обязательная форма ответа: {"key":"same_key","right":{"commentary":[],"terms":[],"entities":[],"refs":[]}} — ключ должен совпадать с key обрабатываемой секции, объект right обязателен.</div>
+          <p class="hint">В prompt передаются ключ, контекст секции и её левая часть; обогащение не должно повторять left. Даже при пустых массивах верните совпадающий <code>key</code> и объект <code>right</code>.</p>
+          <textarea id="sectionEnrichPrompt" placeholder="Оставьте пустым для общего runtime default..."></textarea>
+
         </div>
       </div>
     </details>
 
     <!-- Prompt Registry -->
     <details class="section" id="prompt-registry" open>
-      <summary class="section-title"><span class="icon">🧬</span> Все системные промпты</summary>
+      <summary class="section-title"><span class="icon">🧬</span> Редакторы системных промптов (12 ключей)</summary>
       <div class="section-body">
         <div class="row" style="display:flex; justify-content:space-between; align-items:center; gap: 12px; margin-bottom: 12px;">
-          <div class="row-subtitle" style="margin:0;">Здесь показаны текущие промпты ядра: summary, JSON, mindmap, ranking, follow-up и генерация команд. Меняйте их и сохраняйте настройки.</div>
-          <button class="btn-mini" id="resetAllPromptOverridesBtn" type="button">Reset all</button>
+          <div class="row-subtitle" style="margin:0;">Общие runtime defaults содержат 18 именованных промптов; здесь редактируются 12 ключей, потребляемых root runtime. Для каждого показаны источник, ветка применения, переменные и пример подстановки. Изменения сохраняются кнопкой ниже.</div>
+          <button class="btn-mini" id="resetAllPromptOverridesBtn" type="button">Сбросить все overrides</button>
         </div>
         <div class="prompt-registry-grid" id="promptRegistryList"></div>
       </div>
     </details>
 
     <!-- Action Prompts -->
-    <details class="section" open>
-      <summary class="section-title"><span class="icon">⚡</span> Prompts для действий (кнопки справа)</summary>
+    <details class="section" id="action-prompts" open>
+      <summary class="section-title"><span class="icon">⚡</span> Промпты root-действий (кнопки справа)</summary>
       <div class="section-body">
+        <div class="settings-note">
+          <strong>Область действия</strong>
+          <p>Это 17 root action templates из общего runtime defaults. Для каждого показываются текущий источник, переменные и подставленный пример контекста. Сохранённый пользовательский override остаётся активным, пока его не сбросить. Сохраните изменения и снова запустите действие, чтобы увидеть новый результат; уже выведенная карточка/кэш не меняется.</p>
+          <p>Эта страница общая для двух расширений, но root action prompts не управляют Vite content. У Vite есть собственная система промптов.</p>
+        </div>
         <div class="row" style="display:flex; justify-content:flex-end; margin-bottom: 10px;">
-          <button class="btn-mini" id="resetAllActionPromptsBtn" type="button">Reset all</button>
+          <button class="btn-mini" id="resetAllActionPromptsBtn" type="button">Сбросить все overrides</button>
         </div>
         <div class="row">
           <div class="row-title">Twitter (1) <button class="btn-mini" data-reset-action="twitter" type="button">Reset</button></div>
@@ -979,16 +1036,16 @@
           <div class="row-title">Render Host (R) <button class="btn-mini" data-reset-action="renderHost" type="button">Reset</button></div>
           <textarea id="actionPrompt_renderHost"></textarea>
         </div>
-        <p class="hint">Переменные: {url} {title} {summary} {content} {browserContext} {selection}</p>
+        <p class="hint">Переменные и их примеры показаны отдельно для каждого шаблона выше.</p>
       </div>
     </details>
 
     <div class="actions">
-      <button class="btn btn-primary" id="saveBtn">💾 Сохранить</button>
+      <button class="btn btn-primary" id="saveBtn">💾 Сохранить настройки</button>
       <button class="btn btn-secondary" id="resetBtn">↺ Сбросить</button>
-      <span class="status" id="status"></span>
+      <span class="status" id="status">Есть несохранённые изменения</span>
     </div>
+    <script src="prompt-defaults.js"></script>
   </div>
-
 </body>
 </html>

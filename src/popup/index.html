@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pzdrk</title>
+  <title>Rox Discovery</title>
   <style>
     * {
       margin: 0;
@@ -26,8 +26,10 @@
     }
     
     .logo {
-      font-size: 32px;
-      margin-bottom: 8px;
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+      margin: 0 auto 8px;
     }
     
     .title {
@@ -74,6 +76,12 @@
       flex-direction: column;
       gap: 12px;
       margin-bottom: 20px;
+    }
+    .error-message {
+      margin: -8px 0 20px;
+      color: #fca5a5;
+      font-size: 12px;
+      line-height: 1.4;
     }
     
     .btn {
@@ -193,8 +201,8 @@
 </head>
 <body>
   <div class="header">
-    <div class="logo">✦</div>
-    <div class="title">pzdrk</div>
+    <img class="logo" src="../../icons/pzdrk.png" alt="">
+    <div class="title">Rox Discovery</div>
     <div class="subtitle">AI Analysis • Vector DB • Multi-Provider</div>
   </div>
   
@@ -227,6 +235,7 @@
       <span>Generate Mindmap</span>
     </button>
   </div>
+  <div id="summary-error" class="error-message" role="alert" hidden></div>
   
   <div class="providers">
     <div class="providers-title">Providers</div>

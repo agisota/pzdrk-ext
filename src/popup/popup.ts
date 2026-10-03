@@ -98,17 +98,34 @@ function setupEventListeners(): void {
   const summarizeBtn = document.getElementById('summarize-btn');
   if (summarizeBtn) {
     summarizeBtn.addEventListener('click', async () => {
+      const summaryError = document.getElementById('summary-error');
+      if (summaryError) {
+        summaryError.textContent = '';
+        summaryError.hidden = true;
+      }
       setLoading(summarizeBtn, true);
       
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab.id) {
-          await chrome.tabs.sendMessage(tab.id, { action: 'summarize' });
+        if (!tab?.id) throw new Error('Open a page and try again.');
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'summarize' });
+        if (!response?.success) {
+          throw new Error(
+            typeof response?.error === 'string' && response.error
+              ? response.error
+              : 'Summary failed. Please try again.'
+          );
         }
         window.close();
       } catch (e) {
         console.error('Failed to summarize:', e);
         setLoading(summarizeBtn, false);
+        if (summaryError) {
+          summaryError.textContent = e instanceof Error && e.message
+            ? e.message
+            : 'Summary failed. Please try again.';
+          summaryError.hidden = false;
+        }
       }
     });
   }

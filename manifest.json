@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "✦ pzdrk",
-  "version": "6.4.0",
-  "description": "AI анализ • Privacy • Mindmap • Glass UI",
+  "name": "Rox Discovery",
+  "version": "6.5.0",
+  "description": "Компактный анализ страницы • Markdown • Карта и Mindweb • Obsidian",
   "permissions": [
     "storage",
     "activeTab",
@@ -28,6 +28,7 @@
   },
   "action": {
     "default_popup": "popup.html",
+    "default_title": "Rox Discovery",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -40,8 +41,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": ["prompt-defaults.js", "workspace-map.js", "content.js"],
+      "css": ["content.css", "workspace-map.css"],
       "run_at": "document_idle"
     }
   ],
@@ -54,7 +55,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "icons/pzdrk.png"
+        "icons/pzdrk.png",
+        "fonts/RoxMonoTypeface-SemiCondensed.ttf"
       ],
       "matches": [
         "<all_urls>"

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "✦ pzdrk Advanced",
+  "name": "Rox Discovery",
   "version": "7.0.0",
   "description": "AI analysis • Vector DB • Multi-Provider • Obsidian Sync",
   "permissions": [
@@ -26,7 +26,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/main.ts-loader-DmsL2Y0T.js"
+        "assets/main.ts-loader-BVYFWZOw.js"
       ],
       "matches": [
         "<all_urls>"
@@ -38,7 +38,18 @@
     }
   ],
   "action": {
-    "default_popup": "src/popup/index.html"
+    "default_popup": "src/popup/index.html",
+    "default_title": "Rox Discovery",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "options_page": "options.html",
   "web_accessible_resources": [
@@ -48,9 +59,10 @@
       ],
       "resources": [
         "assets/*",
-        "assets/smart-router-JDkFv81c.js",
-        "assets/index-C2liYqEQ.js",
-        "assets/main.ts-i-dpTUs2.js"
+        "icons/*",
+        "assets/shared-defaults-txBO2bdM.js",
+        "assets/index-oRFwxoj_.js",
+        "assets/main.ts-Bb4hsTWF.js"
       ],
       "use_dynamic_url": false
     }

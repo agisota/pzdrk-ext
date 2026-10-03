@@ -84,11 +84,16 @@ jobs:
       - name: Create extension zip
         run: |
           VERSION=$(node -p "require('./manifest.json').version")
-          zip -r "pzdrk-v${VERSION}.zip" \
+          zip -r "Rox-Discovery-v${VERSION}.zip" \
             manifest.json \
+            shared-defaults.json \
+            prompt-defaults.js \
             background.js \
             content.js \
             content.css \
+            workspace-map.js \
+            workspace-map.css \
+            fonts/ \
             popup.html \
             popup.js \
             options.html \
@@ -96,7 +101,7 @@ jobs:
             icons/ \
             rules/ \
             -x "*.DS_Store" -x "__MACOSX/*"
-          echo "Built pzdrk-v${VERSION}.zip"
+          echo "Built Rox-Discovery-v${VERSION}.zip"
           ls -la *.zip
 
       - name: Upload artifact

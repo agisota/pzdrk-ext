@@ -1,66 +1,76 @@
 {
-  "../../../../@crx/manifest": {
-    "file": "assets/crx-manifest.js-BXZ4iNXS.js",
+  "../../../../../@crx/manifest": {
+    "file": "assets/crx-manifest.js-CtQjVIzr.js",
     "name": "crx-manifest.js",
-    "src": "../../../../@crx/manifest",
+    "src": "../../../../../@crx/manifest",
     "isEntry": true
   },
-  "_index-C2liYqEQ.js": {
-    "file": "assets/index-C2liYqEQ.js",
+  "_index-oRFwxoj_.js": {
+    "file": "assets/index-oRFwxoj_.js",
     "name": "index"
   },
   "_modulepreload-polyfill-B5Qt9EMX.js": {
     "file": "assets/modulepreload-polyfill-B5Qt9EMX.js",
     "name": "modulepreload-polyfill"
   },
-  "_smart-router-JDkFv81c.js": {
-    "file": "assets/smart-router-JDkFv81c.js",
-    "name": "smart-router",
+  "_shared-defaults-txBO2bdM.js": {
+    "file": "assets/shared-defaults-txBO2bdM.js",
+    "name": "shared-defaults",
     "imports": [
-      "_index-C2liYqEQ.js"
+      "_index-oRFwxoj_.js"
     ]
   },
+  "icons/pzdrk.png": {
+    "file": "assets/pzdrk-LpuM--fs.png",
+    "src": "icons/pzdrk.png"
+  },
   "main.ts-loader.js": {
-    "file": "assets/main.ts-loader-DmsL2Y0T.js",
+    "file": "assets/main.ts-loader-BVYFWZOw.js",
     "src": "main.ts-loader.js"
   },
   "options.html": {
-    "file": "assets/options-DYKqaWEk.js",
+    "file": "assets/options-CmErhZfL.js",
     "name": "options",
     "src": "options.html",
     "isEntry": true,
     "imports": [
       "_modulepreload-polyfill-B5Qt9EMX.js"
+    ],
+    "assets": [
+      "assets/pzdrk-LpuM--fs.png"
     ]
   },
   "src/background/main.ts": {
-    "file": "assets/main.ts-qoMCLsZN.js",
+    "file": "assets/main.ts--QxPrSfF.js",
     "name": "main.ts",
     "src": "src/background/main.ts",
     "isEntry": true,
     "imports": [
-      "_smart-router-JDkFv81c.js",
-      "_index-C2liYqEQ.js"
+      "_shared-defaults-txBO2bdM.js",
+      "_index-oRFwxoj_.js"
     ]
   },
   "src/content/main.ts": {
-    "file": "assets/main.ts-i-dpTUs2.js",
+    "file": "assets/main.ts-Bb4hsTWF.js",
     "name": "main.ts",
     "src": "src/content/main.ts",
     "isEntry": true,
     "imports": [
-      "_smart-router-JDkFv81c.js",
-      "_index-C2liYqEQ.js"
+      "_shared-defaults-txBO2bdM.js",
+      "_index-oRFwxoj_.js"
     ]
   },
   "src/popup/index.html": {
-    "file": "assets/popup-QUbcggit.js",
+    "file": "assets/popup-ByR5d71X.js",
     "name": "popup",
     "src": "src/popup/index.html",
     "isEntry": true,
     "imports": [
       "_modulepreload-polyfill-B5Qt9EMX.js",
-      "_index-C2liYqEQ.js"
+      "_index-oRFwxoj_.js"
+    ],
+    "assets": [
+      "assets/pzdrk-LpuM--fs.png"
     ]
   }
 }

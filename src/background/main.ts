@@ -2,41 +2,40 @@ import { smartApiRouter } from '@core/api-router/smart-router';
 import { keyRotationEngine } from '@core/key-manager/rotation-engine';
 import { DEFAULT_PROVIDERS } from '@shared/constants';
 import type { SummaryData } from '@shared/types';
+import sharedDefaults from '../../shared-defaults.json';
 
-// Background service worker for pzdrk v7.0
-console.log('🚀 Pzdrk v7.0 background service worker started');
+// Background service worker for Rox Discovery v7.0
+console.log('Rox Discovery v7.0 background service worker started');
 
 // Initialize providers from storage
 async function initializeProviders(): Promise<void> {
-  const { apiKeys } = await chrome.storage.sync.get('apiKeys');
-  
-  if (apiKeys) {
-    // Register Groq
-    if (apiKeys.groq?.length > 0) {
-      keyRotationEngine.registerKeys('groq', apiKeys.groq);
-      smartApiRouter.registerProvider({
-        ...DEFAULT_PROVIDERS.groq,
-        keys: apiKeys.groq
-      });
-    }
-    
-    // Register Cerebras
-    if (apiKeys.cerebras?.length > 0) {
-      keyRotationEngine.registerKeys('cerebras', apiKeys.cerebras);
-      smartApiRouter.registerProvider({
-        ...DEFAULT_PROVIDERS.cerebras,
-        keys: apiKeys.cerebras
-      });
-    }
-    
-    // Register OpenAI
-    if (apiKeys.openai?.length > 0) {
-      keyRotationEngine.registerKeys('openai', apiKeys.openai);
-      smartApiRouter.registerProvider({
-        ...DEFAULT_PROVIDERS.openai,
-        keys: apiKeys.openai
-      });
-    }
+  const { apiKeys, groqApiKeys, groqApiKey } = await chrome.storage.sync.get([
+    'apiKeys', 'groqApiKeys', 'groqApiKey'
+  ]);
+  const legacyGroqKeys = typeof groqApiKey === 'string' && groqApiKey.length > 0 ? [groqApiKey] : undefined;
+  const groqKeys = apiKeys?.groq
+    ?? (Array.isArray(groqApiKeys) ? groqApiKeys : undefined)
+    ?? legacyGroqKeys
+    ?? sharedDefaults.groqApiKeys;
+  keyRotationEngine.registerKeys('groq', groqKeys);
+  smartApiRouter.registerProvider({
+    ...DEFAULT_PROVIDERS.groq,
+    keys: groqKeys
+  });
+
+  if (apiKeys?.cerebras?.length > 0) {
+    keyRotationEngine.registerKeys('cerebras', apiKeys.cerebras);
+    smartApiRouter.registerProvider({
+      ...DEFAULT_PROVIDERS.cerebras,
+      keys: apiKeys.cerebras
+    });
+  }
+  if (apiKeys?.openai?.length > 0) {
+    keyRotationEngine.registerKeys('openai', apiKeys.openai);
+    smartApiRouter.registerProvider({
+      ...DEFAULT_PROVIDERS.openai,
+      keys: apiKeys.openai
+    });
   }
 }
 
@@ -113,6 +112,70 @@ async function processSyncQueue(): Promise<void> {
   await chrome.storage.local.set({ syncQueue: remaining });
 }
 
+async function getTelegramSettings() {
+  const stored = await chrome.storage.local.get([
+    'telegramEnabled', 'telegramBotToken', 'telegramChatId',
+    'telegramSendHtml', 'telegramSendMarkdown'
+  ]);
+  if ((stored.telegramEnabled ?? sharedDefaults.telegramEnabled) !== true) throw new Error('Telegram выключен в настройках');
+  const botToken = String(stored.telegramBotToken ?? sharedDefaults.telegramBotToken).trim();
+  const chatId = String(stored.telegramChatId ?? sharedDefaults.telegramChatId).trim();
+  if (!botToken || !chatId) throw new Error('Укажите Telegram bot token и chat id в настройках');
+  return {
+    botToken,
+    chatId,
+    sendHtml: stored.telegramSendHtml !== false,
+    sendMarkdown: stored.telegramSendMarkdown === true
+  };
+}
+
+async function telegramRequest(botToken: string, method: string, init: RequestInit): Promise<void> {
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, init);
+  const data = await response.json() as { ok?: boolean; description?: string };
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.description || `Telegram ${method} failed: ${response.status}`);
+  }
+}
+
+async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<void> {
+  await telegramRequest(botToken, 'sendMessage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: text.slice(0, 3900),
+      disable_web_page_preview: true
+    })
+  });
+}
+
+async function sendTelegramArtifact(artifact: unknown): Promise<{ sent: string[]; title: string }> {
+  const settings = await getTelegramSettings();
+  const data = artifact && typeof artifact === 'object' ? artifact as Record<string, unknown> : {};
+  const title = String(data.title || 'Rox Discovery artifact');
+  const url = String(data.url || '');
+  const safeTitle = title.replace(/[^\wа-яА-ЯёЁ.-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'Rox-Discovery';
+  const sent: string[] = [];
+  for (const [type, enabled, mime] of [
+    ['html', settings.sendHtml, 'text/html;charset=utf-8'],
+    ['markdown', settings.sendMarkdown, 'text/markdown;charset=utf-8']
+  ] as const) {
+    const content = String(data[type] || '');
+    if (!enabled || !content) continue;
+    const form = new FormData();
+    form.append('chat_id', settings.chatId);
+    form.append('caption', `${title}\n${url}`.replace(/\s+/g, ' ').slice(0, 900));
+    form.append('document', new Blob([content], { type: mime }), `${safeTitle}.${type === 'html' ? 'html' : 'md'}`);
+    await telegramRequest(settings.botToken, 'sendDocument', { method: 'POST', body: form });
+    sent.push(type);
+  }
+  if (!sent.length) {
+    await sendTelegramMessage(settings.botToken, settings.chatId, `${title}\n${url}\n\n${String(data.text || '').slice(0, 2400)}`);
+    sent.push('message');
+  }
+  return { sent, title };
+}
+
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   (async () => {
@@ -145,6 +208,22 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
           }
           break;
           
+        case 'testTelegram': {
+          const settings = await getTelegramSettings();
+          await sendTelegramMessage(settings.botToken, settings.chatId, request.message || 'Rox Discovery: Telegram delivery connected.');
+          sendResponse({ success: true, data: { ok: true } });
+          break;
+        }
+
+        case 'resetTrackerStats':
+          // The shared options page sends this reset in both extension builds.
+          // Vite has no tracker statistics to clear, but must acknowledge it.
+          sendResponse({ success: true, data: true });
+          break;
+        case 'sendTelegramArtifact':
+          sendResponse({ success: true, data: await sendTelegramArtifact(request.artifact) });
+          break;
+
         default:
           sendResponse({ success: false, error: 'Unknown action' });
       }
@@ -183,7 +262,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Handle storage changes
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'sync' && changes.apiKeys) {
+  if (areaName === 'sync' && (changes.apiKeys || changes.groqApiKeys || changes.groqApiKey)) {
     initializeProviders();
   }
 });

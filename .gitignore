@@ -1,3 +1,8 @@
 node_modules
 .omx/
 local-overrides.json
+dist/
+*.zip
+.env
+.env.*
+.DS_Store

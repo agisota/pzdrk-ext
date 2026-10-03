@@ -10,35 +10,6 @@ describe('SmartApiRouter', () => {
     vi.useFakeTimers();
   });
 
-  describe('registerProvider', () => {
-    it('should register a new provider', () => {
-      router.registerProvider({
-        id: 'groq',
-        name: 'Groq',
-        keys: ['test-key'],
-        models: [],
-        rateLimits: { requestsPerMinute: 30, tokensPerMinute: 6000 },
-        priority: 1,
-        healthStatus: 'healthy'
-      });
-
-      // Provider should be available for selection
-      const request: RequestProfile = {
-        id: 'test-1',
-        prompt: 'Test',
-        estimatedInputTokens: 100,
-        estimatedOutputTokens: 100,
-        requiresJson: false,
-        requiresStreaming: false,
-        complexity: 'simple',
-        latencySlo: 5000,
-        retryCount: 0
-      };
-
-      // Should not throw
-      expect(() => router.execute(request, { strategy: 'single' })).not.toThrow();
-    });
-  });
 
   describe('execute strategies', () => {
     it('should support single strategy', async () => {

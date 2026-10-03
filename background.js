@@ -1,11 +1,11 @@
 // ============ @pzdrk v6.3 Background Service Worker ============
 
 // Defaults (built-in). BYOK/local overrides can extend these.
-const DEFAULT_EXA_KEY = 'bebe84f2-7740-4b67-b9d6-91edbecb080f';
-const XAI_VOICE_KEY = 'xai-GIuMtBSOO3KnHNYgmd69NFdzLIDCuo6ZjJ23q3Sbe3fjEtbHLte15KHNaB27k88O5E4v7k3CPSckQMxf';
-const SLACK_WEBHOOK = 'https://hooks.slack.com/triggers/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';
+const DEFAULT_EXA_KEY = '';
+const XAI_VOICE_KEY = '';
 const LOCAL_OVERRIDES_FILE = 'local-overrides.json';
-const DEFAULT_GROQ_MODEL = 'groq/compound';
+const SHARED_DEFAULTS_FILE = 'shared-defaults.json';
+const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
 const DEFAULT_CEREBRAS_MODEL = 'gpt-oss-120b';
 const MAX_OUTPUT_TOKENS = 8192;
 const DEFAULT_REQUEST_MAX_TOKENS = 1800;
@@ -32,6 +32,7 @@ const TRACKER_RULESET_ID = 'pzdrk_blocklist';
 // Tracker stats
 let trackerStats = { blocked: 0, domains: new Set() };
 let localOverridesPromise = null;
+let sharedDefaultsPromise = null;
 
 async function syncPrivacyRuleset() {
   try {
@@ -63,8 +64,8 @@ chrome.declarativeNetRequest.onRuleMatchedDebug?.addListener((info) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: 'pzdrkExplain', title: '✦ pzdrk: Объяснить', contexts: ['selection'] });
-  chrome.contextMenus.create({ id: 'pzdrkTranslate', title: '✦ pzdrk: Перевести', contexts: ['selection'] });
+  chrome.contextMenus.create({ id: 'pzdrkExplain', title: 'Rox Discovery: Объяснить', contexts: ['selection'] });
+  chrome.contextMenus.create({ id: 'pzdrkTranslate', title: 'Rox Discovery: Перевести', contexts: ['selection'] });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -74,6 +75,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const handlers = {
+    'openOptions': () => chrome.runtime.openOptionsPage(),
     'callGroq': () => handleGroqCall(request.prompt, request.systemPrompt, request.options),
     'callGroqBatch': () => handleGroqBatchCall(request.items, request.systemPrompt, request.options),
     'searchExa': () => handleExaSearch(request.query),
@@ -81,7 +83,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     'speakGrok': () => handleGrokVoice(request.text),
     'xaiRealtimeClientSecret': () => handleXaiRealtimeClientSecret(request.ttlSeconds),
     'fetchUrlMeta': () => handleFetchUrlMeta(request.url),
-    'sendSlack': () => handleSlackSend(request.data),
+    'saveObsidianArtifact': () => handleSaveObsidianArtifact(request.artifact),
     'saveArtifact': () => handleSaveArtifact(request.artifact),
     'listArtifacts': () => handleListArtifacts(),
     'getArtifact': () => handleGetArtifact(request.id),
@@ -129,7 +131,7 @@ function normalizeArtifactForStorage(artifact) {
     id,
     url: String(input.url || ''),
     canonicalUrl: String(input.canonicalUrl || input.url || ''),
-    title: String(input.title || 'pzdrk artifact').slice(0, 180),
+    title: String(input.title || 'Rox Discovery artifact').slice(0, 180),
     domain: String(input.domain || ''),
     createdAt: Number(input.createdAt || now),
     updatedAt: now,
@@ -168,19 +170,55 @@ async function writeArtifacts(artifacts) {
   await chrome.storage.local.set({ [ARTIFACT_STORE_KEY]: artifacts });
 }
 
+let artifactMutationQueue = Promise.resolve();
+
+function withArtifactMutation(operation) {
+  const result = artifactMutationQueue.then(operation, operation);
+  artifactMutationQueue = result.catch(() => {});
+  return result;
+}
+
 async function handleSaveArtifact(artifact) {
-  const normalized = normalizeArtifactForStorage(artifact);
-  const existing = await readArtifacts();
-  const duplicateKey = normalized.contentHash || normalized.id;
-  const next = [
-    normalized,
-    ...existing.filter(item => {
-      const key = item?.contentHash || item?.id;
-      return key !== duplicateKey && item?.id !== normalized.id;
-    })
-  ].slice(0, ARTIFACT_STORE_LIMIT);
-  await writeArtifacts(next);
-  return { artifact: getArtifactMeta(normalized), count: next.length };
+  return withArtifactMutation(async () => {
+    const normalized = normalizeArtifactForStorage(artifact);
+    const existing = await readArtifacts();
+    const duplicateKey = normalized.contentHash || normalized.id;
+    const next = [
+      normalized,
+      ...existing.filter(item => {
+        const key = item?.contentHash || item?.id;
+        return key !== duplicateKey && item?.id !== normalized.id;
+      })
+    ].slice(0, ARTIFACT_STORE_LIMIT);
+    await writeArtifacts(next);
+    return { artifact: getArtifactMeta(normalized), count: next.length };
+  });
+}
+
+async function handleSaveObsidianArtifact(artifact) {
+  const stored = await chrome.storage.local.get(['obsidianBridgeToken']);
+  const token = String(stored.obsidianBridgeToken || '').trim();
+  if (!token) throw new Error('Obsidian sync is not configured. Add the bridge token in extension settings and start the local Obsidian bridge.');
+
+  let response;
+  try {
+    response = await fetch('http://127.0.0.1:7421/v1/notes', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(artifact || {}),
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch {
+    throw new Error('Obsidian bridge is unreachable. Start the local bridge, then retry saving this note.');
+  }
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.ok !== true || typeof result.path !== 'string' || !result.path) {
+    throw new Error(typeof result?.error === 'string' ? result.error : `Obsidian save failed (HTTP ${response.status}). Retry after checking the local bridge.`);
+  }
+  return { path: result.path, bytes: result.bytes };
 }
 
 async function handleListArtifacts() {
@@ -203,10 +241,12 @@ async function handleGetArtifact(id) {
 async function handleDeleteArtifact(id) {
   const targetId = String(id || '').trim();
   if (!targetId) throw new Error('Missing artifact id');
-  const artifacts = await readArtifacts();
-  const next = artifacts.filter(item => String(item?.id || '') !== targetId);
-  await writeArtifacts(next);
-  return { deleted: artifacts.length - next.length, count: next.length };
+  return withArtifactMutation(async () => {
+    const artifacts = await readArtifacts();
+    const next = artifacts.filter(item => String(item?.id || '') !== targetId);
+    await writeArtifacts(next);
+    return { deleted: artifacts.length - next.length, count: next.length };
+  });
 }
 
 async function handleCaptureVisibleTab(sender) {
@@ -228,13 +268,17 @@ function clipTelegramCaption(text) {
 }
 
 async function getTelegramSettings() {
-  const settings = await chrome.storage.local.get([
-    'telegramEnabled',
-    'telegramBotToken',
-    'telegramChatId',
-    'telegramSendHtml',
-    'telegramSendMarkdown'
+  const [stored, defaults] = await Promise.all([
+    chrome.storage.local.get([
+      'telegramEnabled',
+      'telegramBotToken',
+      'telegramChatId',
+      'telegramSendHtml',
+      'telegramSendMarkdown'
+    ]),
+    loadSharedDefaults()
   ]);
+  const settings = { ...defaults, ...stored };
   const enabled = settings.telegramEnabled === true;
   const botToken = String(settings.telegramBotToken || '').trim();
   const chatId = String(settings.telegramChatId || '').trim();
@@ -285,7 +329,7 @@ async function sendTelegramDocument(botToken, chatId, filename, mimeType, conten
 async function handleTelegramArtifact(artifact) {
   const settings = await getTelegramSettings();
   const normalized = normalizeArtifactForStorage(artifact);
-  const safeTitle = String(normalized.title || 'pzdrk').replace(/[^\wа-яА-ЯёЁ.-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'pzdrk';
+  const safeTitle = String(normalized.title || 'Rox Discovery').replace(/[^\wа-яА-ЯёЁ.-]+/g, '-').replace(/-+/g, '-').slice(0, 80) || 'Rox-Discovery';
   const caption = `${normalized.title}\n${normalized.url}`;
   const sent = [];
 
@@ -309,7 +353,7 @@ async function handleTelegramArtifact(artifact) {
 
 async function handleTelegramTest(message) {
   const settings = await getTelegramSettings();
-  await sendTelegramMessage(settings.botToken, settings.chatId, message || 'pzdrk: Telegram delivery connected.');
+  await sendTelegramMessage(settings.botToken, settings.chatId, message || 'Rox Discovery: Telegram delivery connected.');
   return { ok: true };
 }
 
@@ -379,6 +423,17 @@ function dedupeStrings(list) {
   return Array.from(new Set((Array.isArray(list) ? list : []).map(v => String(v || '').trim()).filter(Boolean)));
 }
 
+async function loadSharedDefaults() {
+  if (!sharedDefaultsPromise) {
+    sharedDefaultsPromise = fetch(chrome.runtime.getURL(SHARED_DEFAULTS_FILE))
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Shared extension defaults unavailable');
+        return response.json();
+      });
+  }
+  return sharedDefaultsPromise;
+}
+
 async function loadLocalOverrides() {
   if (!localOverridesPromise) {
     localOverridesPromise = fetch(chrome.runtime.getURL(LOCAL_OVERRIDES_FILE), { cache: 'no-store' })
@@ -430,8 +485,16 @@ function applyLocalOverrides(settings, overrides) {
 }
 
 async function getMergedSettings(keys) {
-  const settings = await chrome.storage.sync.get(keys);
-  return applyLocalOverrides(settings, await loadLocalOverrides());
+  const [stored, defaults, overrides] = await Promise.all([
+    chrome.storage.sync.get(keys),
+    loadSharedDefaults(),
+    loadLocalOverrides()
+  ]);
+  const settings = { ...stored };
+  if (!Object.hasOwn(stored, 'groqApiKeys') && !String(stored.groqApiKey || '').trim()) {
+    settings.groqApiKeys = defaults.groqApiKeys;
+  }
+  return applyLocalOverrides(settings, overrides);
 }
 
 function normalizeProvider(p) {
@@ -455,7 +518,6 @@ function isKnownCerebrasModelId(id) {
 function isDeprecatedGroqModelId(id) {
   return [
     '',
-    'compound',
     'moonshotai/kimi-k2-instruct',
     'moonshotai/kimi-k2-instruct-0905'
   ].includes(String(id || '').trim());
@@ -483,7 +545,7 @@ function getKeysForProvider(settings, provider) {
   }
 
   const list = dedupeStrings(normalizeKeyList(settings.groqApiKeys));
-  if (list.length) return list;
+  if (list.length || Object.hasOwn(settings, 'groqApiKeys')) return list;
   const legacy = String(settings.groqApiKey || '').trim();
   return legacy ? [legacy] : [];
 }
@@ -596,13 +658,18 @@ async function callLLMWithProvider(settings, provider, messages, temperature, ma
 
   const timeoutMs = 90000;
   const attempts = Math.max(2, Math.min(10, keys.length * 2));
+  let lastError = null;
 
-  for (let a = 0; a < attempts; a++) {
+  for (let a = 0; a < attempts;) {
     const pick = pickNextKey(provider, keys);
     if (!pick.key) {
-      if (pick.waitMs > 0) await sleep(Math.min(pick.waitMs, 2000));
-      continue;
+      if (pick.waitMs > 0 && pick.waitMs <= 2000) {
+        await sleep(pick.waitMs);
+        continue;
+      }
+      throw lastError || new Error(`${provider}: all API keys are cooling down. Retry in ${Math.max(1, Math.ceil(pick.waitMs / 1000))} seconds, or check API keys in settings.`);
     }
+    a++;
 
     const payload = {
       model,
@@ -619,7 +686,7 @@ async function callLLMWithProvider(settings, provider, messages, temperature, ma
     try {
       return await callChatCompletions(provider, pick.key, payload, timeoutMs);
     } catch (e) {
-      const message = getErrorMessageText(e);
+      lastError = e;
 
       if (e?.status === 429) {
         const retry = Number.isFinite(Number(e.retryAfterMs)) ? Number(e.retryAfterMs) : 1200;
@@ -627,7 +694,7 @@ async function callLLMWithProvider(settings, provider, messages, temperature, ma
         continue;
       }
       if (shouldQuarantineKey(provider, e)) {
-        const quarantineMs = (provider === 'groq' && e?.status === 413 && /\blimit\s*1\b/i.test(message))
+        const quarantineMs = (provider === 'groq' && e?.status === 413 && /\blimit\s*1\b/i.test(getErrorMessageText(e)))
           ? BROKEN_KEY_COOLDOWN_MS
           : AUTH_KEY_COOLDOWN_MS;
         markKeyCooldown(provider, pick.key, quarantineMs);
@@ -651,12 +718,13 @@ async function callLLMWithProvider(settings, provider, messages, temperature, ma
     }
   }
 
-  throw new Error('LLM call failed after retries');
+  throw lastError || new Error(`${provider}: no API key is available. Check API keys in settings.`);
 }
 
 async function callLLM(settings, messages, temperature, maxTokens) {
   const primary = normalizeProvider(settings.coreProvider);
-  const providers = primary === 'groq' ? ['groq', 'cerebras'] : ['cerebras', 'groq'];
+  const compoundSelected = primary === 'groq' && /^groq\/compound(?:-mini)?$/.test(getModelForProvider(settings, primary));
+  const providers = compoundSelected ? ['groq'] : primary === 'groq' ? ['groq', 'cerebras'] : ['cerebras', 'groq'];
 
   let lastErr = null;
   for (const p of providers) {
@@ -666,6 +734,7 @@ async function callLLM(settings, messages, temperature, maxTokens) {
       return await callLLMWithProvider(settings, p, messages, temperature, maxTokens);
     } catch (e) {
       lastErr = e;
+      if (Number(e?.status) === 400 || Number(e?.status) === 404) throw e;
     }
   }
 
@@ -876,30 +945,6 @@ async function handleFetchUrlMeta(url) {
   };
 }
 
-// ============ SLACK (ALWAYS sends, no user control) ============
-
-async function handleSlackSend(data) {
-  const payload = {
-    url: data.url || '',
-    summarized_note: data.summarized_note || '',
-    tags: data.tags || '',
-    timestamp: data.timestamp || new Date().toISOString(),
-    page_tokens: data.page_tokens || 0,
-    summary_tokens: data.summary_tokens || 0
-  };
-
-  try {
-    await fetchWithTimeout(SLACK_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }, 10000);
-  } catch (e) {
-    // Silent fail - Slack is fire-and-forget
-  }
-
-  return { success: true };
-}
 
 // ============ BROWSER CONTEXT ============
 

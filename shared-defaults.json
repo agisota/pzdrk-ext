@@ -1,0 +1,6 @@
+{
+  "groqApiKeys": [],
+  "telegramEnabled": true,
+  "telegramBotToken": "",
+  "telegramChatId": ""
+}

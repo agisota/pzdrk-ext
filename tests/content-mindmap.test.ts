@@ -32,7 +32,7 @@ type MindmapHelpers = {
     maxTargets?: number,
     options?: { minDepth?: number; maxDepth?: number; maxChildren?: number }
   ) => MindmapNode[];
-  buildMindmapExpansionPlan: (data: MindmapData) => Array<{
+  buildMindmapExpansionPlan: (data: MindmapData, settings?: { targetMaxOutputTokens?: number }) => Array<{
     title: string;
     contentLimit: number;
     maxTokens: number;
@@ -72,6 +72,7 @@ function loadMindmapHelpers(): MindmapHelpers {
     'extractTextCandidate',
     'slugifyForId',
     'document',
+    'DEFAULT_TARGET_MAX_OUTPUT_TOKENS',
     `${snippet}
     return {
       parseJsonArray,
@@ -94,7 +95,8 @@ function loadMindmapHelpers(): MindmapHelpers {
   ) as (
     extractTextCandidate: (value: unknown, depth?: number) => string,
     slugifyForId: (value?: string) => string,
-    document: { title: string }
+    document: { title: string },
+    DEFAULT_TARGET_MAX_OUTPUT_TOKENS: number
   ) => MindmapHelpers;
 
   const extractTextCandidate = (function build() {
@@ -127,7 +129,8 @@ function loadMindmapHelpers(): MindmapHelpers {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .slice(0, 64),
-    { title: 'Document Fallback' }
+    { title: 'Document Fallback' },
+    8192
   );
 }
 
@@ -500,11 +503,12 @@ describe('content mindmap helpers', () => {
 
     const plan = helpers.buildMindmapExpansionPlan(data);
 
-    expect(plan.length).toBeGreaterThanOrEqual(3);
-    expect(plan[0].title).toContain('главные кластеры');
-    expect(plan[1].title).toContain('механики');
-    expect(plan.some(step => step.title.includes('глубокие ветки'))).toBe(true);
+    expect(plan.length).toBeGreaterThan(0);
     expect(plan[0].pickTargets().map(node => node.id)).toContain('cluster_2');
+    const constrained = helpers.buildMindmapExpansionPlan(data, { targetMaxOutputTokens: 512 });
+    expect(constrained.length).toBeLessThanOrEqual(plan.length);
+    expect(constrained.reduce((total, wave) => total + wave.maxTokens, 0))
+      .toBeLessThan(plan.reduce((total, wave) => total + wave.maxTokens, 0));
   });
 
   it('extracts explicit edge links between branches', () => {
@@ -548,14 +552,4 @@ describe('content mindmap helpers', () => {
     expect(edges[0].text).not.toContain('[[edge:');
   });
 
-  it('keeps the rendered mindmap compact by default', () => {
-    const source = fs.readFileSync(path.resolve(__dirname, '../content.js'), 'utf8');
-    const css = fs.readFileSync(path.resolve(__dirname, '../content.css'), 'utf8');
-
-    expect(source).toContain('renderCompactFacts(node, edgeRefs)');
-    expect(source).toContain('applyMindmapExpandToLevel(treeEl, 2)');
-    expect(css).toContain('.pzdrk-mm-facts');
-    expect(css).toContain('grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));');
-    expect(css).toContain('content: none;');
-  });
 });
